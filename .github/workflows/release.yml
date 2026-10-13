@@ -1,0 +1,47 @@
+name: Release
+
+# Push a version tag (git tag v0.2.0 && git push origin v0.2.0) to test, build VimCommander.exe
+# and publish it as a GitHub Release (notes: .github/release-notes.md).
+# A manual run (Actions → Release → Run workflow) only builds the zip; download it as the
+# workflow artifact.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install packages
+        run: pip install -r requirements-build.txt
+      - name: Test
+        run: python -m unittest discover -s tests
+      - name: Build the exe
+        run: python build.py
+      - name: Zip it (without a config.json, so unzipping over an install keeps its settings)
+        shell: pwsh
+        run: |
+          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "dev" }
+          Remove-Item release/VimCommander/config.json -ErrorAction SilentlyContinue
+          Compress-Archive -Path release/VimCommander -DestinationPath "VimCommander-$version-windows-x64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VimCommander-windows
+          path: VimCommander-*-windows-x64.zip
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: VimCommander ${{ github.ref_name }}
+          body_path: .github/release-notes.md
+          files: VimCommander-*-windows-x64.zip
