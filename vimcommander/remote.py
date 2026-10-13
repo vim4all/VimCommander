@@ -204,7 +204,11 @@ class Remote:
             if phrase is None:
                 raise OSError("cancelled")
             client.connect(**options, passphrase=phrase, allow_agent=True, look_for_keys=True)
-        except paramiko.AuthenticationException:
+        except (paramiko.AuthenticationException, paramiko.SSHException) as e:
+            # No key was accepted, or there was none to try (no keys, no agent:
+            # "No authentication methods available"): ask for the password.
+            if not isinstance(e, paramiko.AuthenticationException) and "authentication methods" not in str(e):
+                raise OSError(f"can't connect to {hostname}: {e}") from None
             password = Remote.ask_password(f"Password for {user}@{hostname}")
             if password is None:
                 raise OSError("cancelled")
