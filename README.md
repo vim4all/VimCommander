@@ -44,6 +44,7 @@ VimCommander combines the layout of Total Commander with the keyboard of [vifm](
 - [Development](#development)
 - [Roadmap](#roadmap)
 - [Limitations](#limitations)
+- [License](#license)
 
 ## Features
 
@@ -126,12 +127,14 @@ The screenshots show a made-up home folder; `tools/screenshots.py` makes it and 
 
 ## Installation
 
-You need **Python 3.10 or newer**. The only dependency is [PySide6](https://doc.qt.io/qtforpython-6/) (Qt for Python), about 200–300 MB installed.
+**Windows, ready to run**: download `VimCommander-*-windows-x64.zip` from the [latest release](https://github.com/vim4all/VimCommander/releases/latest), unzip it anywhere and start `VimCommander.exe`. No Python needed. The settings are kept in `config.json` next to the exe (portable). Windows SmartScreen may warn the first time, because the exe isn't signed: *More info* → *Run anyway*.
+
+**From source** you need **Python 3.10 or newer**. The dependencies are [PySide6](https://doc.qt.io/qtforpython-6/) (Qt for Python, about 200–300 MB installed), [paramiko](https://www.paramiko.org/) for [SSH folders](#ssh-folders) and [segno](https://segno.readthedocs.io/) for the QR code of [`:share`](#share-with-a-phone).
 
 **Linux / macOS**
 
 ```bash
-git clone <this repository> VimCommander
+git clone https://github.com/vim4all/VimCommander.git
 cd VimCommander
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
@@ -141,6 +144,7 @@ python3 -m venv .venv
 **Windows** (PowerShell or cmd)
 
 ```bat
+git clone https://github.com/vim4all/VimCommander.git
 cd VimCommander
 py -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
@@ -905,7 +909,7 @@ py -m venv .venv-win
 
 On Linux or macOS, use `.venv/bin/...` instead. PyInstaller builds for the system it runs on, so build with a Windows Python to get `VimCommander.exe`. From WSL you can run the Windows Python directly: `.venv-win/Scripts/python.exe build.py`.
 
-The output folder holds `VimCommander.exe` (or `VimCommander`), the `_internal` folder it needs, `config.json` and this README. Copy the whole folder anywhere and create a shortcut to the executable. Rebuilding keeps an existing `release/VimCommander/config.json`.
+The output folder holds `VimCommander.exe` (or `VimCommander`), the `_internal` folder it needs, `config.json`, this README and the license. Copy the whole folder anywhere and create a shortcut to the executable. Rebuilding keeps an existing `release/VimCommander/config.json`.
 
 ## Development
 
@@ -1021,3 +1025,7 @@ Things that work differently from what you might expect (planned features are in
 - On Linux and macOS, files yanked to the clipboard (`"+yy`) are gone from it once VimCommander quits; on Windows they stay.
 - `y` / `d` don't combine with `n`, `N`, `f`, `;` and `,`, because `yn`, `yf` and so on already have their own meanings (copy name, copy path).
 - On Windows with WSL, the Windows exe and WSL use separate zoxide databases.
+
+## License
+
+[MIT](LICENSE) © 2026 Bohdan Pakhaliuk

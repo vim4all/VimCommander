@@ -118,6 +118,7 @@ def build(have_config: bool) -> None:
             json.dump(config.with_defaults({}), f, indent=2)
             f.write("\n")
     shutil.copy(os.path.join(ROOT, "README.md"), os.path.join(OUT, "README.md"))
+    shutil.copy(os.path.join(ROOT, "LICENSE"), os.path.join(OUT, "LICENSE.txt"))
 
 
 if __name__ == "__main__":
