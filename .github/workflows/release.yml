@@ -2,11 +2,13 @@ name: Release
 
 # Push a version tag (git tag v0.2.0 && git push origin v0.2.0) to test, build VimCommander.exe
 # and publish it as a GitHub Release (notes: .github/release-notes.md).
-# A manual run (Actions → Release → Run workflow) only builds the zip; download it as the
-# workflow artifact.
+# A manual run (Actions → Release → Run workflow), or a change of the build on main, only
+# builds the zip; download it as the workflow artifact.
 on:
   push:
     tags: ["v*"]
+    branches: [main]
+    paths: [".github/workflows/release.yml", "build.py", "requirements*.txt"]
   workflow_dispatch:
 
 permissions:
@@ -25,7 +27,17 @@ jobs:
       - name: Install packages
         run: pip install -r requirements-build.txt
       - name: Test
-        run: python -m unittest discover -s tests
+        shell: bash
+        run: |
+          set -o pipefail
+          pip freeze | grep -i -E "pyside6|paramiko|segno|pyinstaller"
+          python -m unittest discover -s tests 2>&1 | tee test.log
+      - name: Show the failing tests as an annotation
+        if: failure()
+        shell: bash
+        run: |
+          grep -B2 -A25 "^ERROR:\|^FAIL:" test.log | head -150 > tail.log || tail -60 test.log > tail.log
+          echo "::error title=Tests failed::$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' tail.log)"
       - name: Build the exe
         run: python build.py
       - name: Zip it (without a config.json, so unzipping over an install keeps its settings)
