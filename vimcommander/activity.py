@@ -21,6 +21,7 @@ from .sizing import fit_window
 
 RECENT = 3000  # files kept for the list
 WEEKS = 53
+BASE_COLOR = QColor("#2ea043")  # the busiest days; set by the theme
 
 
 def scan_activity(root: str, show_hidden: bool = False, stop: threading.Event | None = None,
@@ -122,7 +123,7 @@ class Heatmap(QWidget):
         return None
 
     def _color(self, count: int) -> QColor:
-        base = QColor("#2ea043")
+        base = QColor(BASE_COLOR)
         if count == 0:
             c = QColor(self.palette().color(QPalette.ColorRole.Text))
             c.setAlpha(25)

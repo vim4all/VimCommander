@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 import unittest
 
 from vimcommander import graph
@@ -81,9 +82,6 @@ class NotesTest(unittest.TestCase):
             self.assertTrue(all(abs(n.x) < 1e4 and abs(n.y) < 1e4 for n in g.nodes))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class CodeTest(unittest.TestCase):
     def setUp(self):
@@ -129,3 +127,57 @@ class CodeTest(unittest.TestCase):
         core = g.nodes[rel.index("pkg/core.py")]
         self.assertEqual((core.count, core.links), (2, 3))  # imported by util and cli, imports util
         self.assertEqual(g.nodes[rel.index("pkg/__init__.py")].name, "pkg/__init__.py")
+
+
+class TreemapTest(unittest.TestCase):
+    def test_squarify_fills_area(self):
+        boxes = graph.squarify([(1, 6), (2, 6), (3, 4), (4, 3), (5, 2), (6, 2), (7, 1)], 0, 0, 6, 4)
+        self.assertEqual(sorted(k for k, *_ in boxes), [1, 2, 3, 4, 5, 6, 7])
+        self.assertAlmostEqual(sum(w * h for _, _, _, w, h in boxes), 24.0)
+        for _, x, y, w, h in boxes:
+            self.assertTrue(x >= -1e-9 and y >= -1e-9 and x + w <= 6 + 1e-9 and y + h <= 4 + 1e-9)
+
+    def test_squarify_skips_empty(self):
+        self.assertEqual(graph.squarify([(1, 0)], 0, 0, 10, 10), [])
+        self.assertEqual(len(graph.squarify([(1, 5), (2, 0)], 0, 0, 10, 10)), 1)
+
+    def test_layout_nests_children(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "a", "b"))
+            for name, size in (("a/x.txt", 3000), ("a/b/y.bin", 5000), ("z.jpg", 2000)):
+                with open(os.path.join(root, name), "wb") as f:
+                    f.write(b"0" * size)
+            g = graph.scan_tree(root, 2)
+            graph.fill_sizes(g)
+            boxes = {i: (x, y, w, h) for i, x, y, w, h in graph.layout_treemap(g, 0, 0, 400, 300)}
+            a = next(i for i, n in enumerate(g.nodes) if n.name == "a")
+            ax, ay, aw, ah = boxes[a]
+            for k in g.nodes[a].children:
+                x, y, w, h = boxes[k]
+                self.assertTrue(ax <= x and ay < y and x + w <= ax + aw + 1e-6 and y + h <= ay + ah + 1e-6)
+
+
+class FolderSummaryTest(unittest.TestCase):
+    def test_scan_folders(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "proj", "src"))
+            os.makedirs(os.path.join(root, "photos"))
+            files = {"proj/src/main.c": 100, "proj/fw.elf": 400, "photos/a.jpg": 50, "loose.pdf": 10}
+            for name, size in files.items():
+                with open(os.path.join(root, name), "wb") as f:
+                    f.write(b"0" * size)
+            os.utime(os.path.join(root, "proj/src/main.c"), (1500000000, 1500000000))  # 2017-07
+            g = graph.scan_folders(root)
+            by_name = {n.name: n for n in g.nodes}
+            proj = by_name["proj"]
+            self.assertEqual((proj.count, proj.size), (2, 500))
+            self.assertEqual(proj.mix, {"code": [100, 1], "build": [400, 1]})
+            self.assertEqual(time.localtime(proj.first).tm_year, 2017)
+            self.assertIn(2017 * 12 + 6, proj.months)
+            self.assertEqual(by_name["(files here)"].mix, {"document": [10, 1]})
+            self.assertEqual(g.nodes[0].count, 4)
+            self.assertEqual(g.nodes[0].size, 560)
+
+
+if __name__ == "__main__":
+    unittest.main()

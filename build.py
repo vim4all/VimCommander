@@ -30,29 +30,18 @@ WORK = os.path.join(ROOT, "build")
 
 
 def make_icon(path: str) -> bool:
-    """Draw a simple app icon with Qt. Returns False if the format isn't supported."""
-    from PySide6.QtCore import Qt
-    from PySide6.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter
+    """Draw the app icon with Qt. Returns False if the format isn't supported."""
+    from PySide6.QtGui import QGuiApplication
+
+    from vimcommander import appicon
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     _app = QGuiApplication.instance() or QGuiApplication([])  # text drawing needs one
-    image = QImage(256, 256, QImage.Format.Format_ARGB32)
-    image.fill(Qt.GlobalColor.transparent)
-    p = QPainter(image)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(QColor("#2e7d32"))
-    p.drawRoundedRect(8, 8, 240, 240, 40, 40)
-    p.setBrush(QColor("#ffffff"))
-    p.drawRect(124, 40, 8, 176)  # the two panes
-    font = QFont()
-    font.setBold(True)
-    font.setPixelSize(150)
-    p.setFont(font)
-    p.setPen(QColor("#ffffff"))
-    p.drawText(image.rect(), Qt.AlignmentFlag.AlignCenter, "V")
-    p.end()
-    return image.save(path)
+    if path.endswith(".ico"):
+        # Qt writes a single 256 px BMP entry, which Explorer shows as blank.
+        appicon.save_ico(path)
+        return True
+    return appicon.image().save(path)
 
 
 def main() -> None:

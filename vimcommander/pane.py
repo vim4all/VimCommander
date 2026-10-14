@@ -57,8 +57,15 @@ def parse_color(text: str) -> QColor | None:
     return color
 
 
-def set_colors(options: dict) -> list[str]:
-    """Resolve the config's colors, with theme defaults. Returns the names of bad ones."""
+def set_colors(options: dict, theme: dict[str, str] | None = None) -> list[str]:
+    """Resolve the config's colors, with theme defaults. Returns the names of bad ones.
+
+    `theme` is a color theme's defaults; they replace any option still at its
+    value in config.DEFAULTS (the app writes those into the file)."""
+    from .config import DEFAULTS
+    theme = theme or {}
+    options = {k: theme[k] if k in theme and v == DEFAULTS["colors"].get(k) else v
+               for k, v in {**theme, **options}.items()}
     palette = QApplication.palette()
     # The accent color (Qt 6.6+) is the user's system accent; the Windows 11
     # theme's Highlight is a dim grey that hardly shows in dark mode.
@@ -159,6 +166,7 @@ class DirModel(QAbstractTableModel):
         self.in_archive = False
         self.remote = False  # listing an sftp:// folder
         self.date_format = "%Y-%m-%d %H:%M"
+        self.short_date = False  # narrow pane: the date without the time
         self.filter: re.Pattern | None = None  # '=' filter: only matching names are listed
         self.filter_text = ""  # the filter as typed
         self.highlight: re.Pattern | None = None  # search matches to highlight (hlsearch)
@@ -301,7 +309,10 @@ class DirModel(QAbstractTableModel):
                     return human_size(DIR_SIZES[e.path]) if e.path in DIR_SIZES else "<DIR>"
                 return human_size(e.size)
             if col == 2 and not e.is_parent:
-                return datetime.fromtimestamp(e.mtime).strftime(self.date_format)
+                fmt = self.date_format
+                if self.short_date:
+                    fmt = fmt.split(" ")[0] or fmt
+                return datetime.fromtimestamp(e.mtime).strftime(fmt)
         elif role == Qt.ItemDataRole.DecorationRole and col == 0:
             return self._icon(e)
         elif role == Qt.ItemDataRole.TextAlignmentRole and col == 1:
@@ -570,6 +581,7 @@ class FileView(ViewBehavior, QTableView):
         self.setFont(font)
         self.verticalHeader().setFont(font)
         self.verticalHeader().setDefaultSectionSize(QFontMetrics(font).height() + 6)
+        self.fit_columns()
 
     def set_numbers(self, number: bool, relative: bool) -> None:
         model = self.model()
@@ -584,6 +596,34 @@ class FileView(ViewBehavior, QTableView):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setHighlightSections(False)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.fit_columns()
+
+    def fit_columns(self) -> None:
+        """Give the name room in a narrow pane: shorten the date, then hide
+        the date column, then the size column."""
+        model = self.model()
+        if not isinstance(model, DirModel):
+            return
+        fm = QFontMetrics(self.font())
+        pad = 24
+        name = fm.horizontalAdvance("M" * 16) + pad
+        size = fm.horizontalAdvance("1023.9 MB") + pad
+        date = fm.horizontalAdvance(datetime(2000, 12, 28, 23, 59).strftime(model.date_format)) + pad
+        short = fm.horizontalAdvance(datetime(2000, 12, 28).strftime(
+            model.date_format.split(" ")[0] or model.date_format)) + pad
+        width = self.viewport().width()
+        short_date = width < name + size + date
+        hide_date = width < name + size + short
+        hide_size = width < name + size
+        if short_date != model.short_date:
+            model.short_date = short_date
+            if model.rowCount():
+                model.dataChanged.emit(model.index(0, 2), model.index(model.rowCount() - 1, 2))
+        self.setColumnHidden(2, hide_date)
+        self.setColumnHidden(1, hide_size)
 
     def currentChanged(self, current, previous):
         super().currentChanged(current, previous)
@@ -873,6 +913,8 @@ class Pane(QWidget):
             self.model.sort_by, self.model.sort_reverse = sort.lstrip("-"), sort.startswith("-")
         self.model.show_hidden = bool(settings.get("show_hidden", False))
         self.model.date_format = str(settings.get("date_format") or "%Y-%m-%d %H:%M")
+        if hasattr(self, "view"):
+            self.view.fit_columns()
         self.history_limit = max(int(settings.get("history_limit", 100)), 1)
 
     # Navigation

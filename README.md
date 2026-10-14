@@ -59,7 +59,7 @@ VimCommander combines the layout of Total Commander with the keyboard of [vifm](
 - **Safe delete**: `Del` moves files to the system trash (Recycle Bin on Windows) after asking. `Shift-Del` deletes permanently.
 - **Right-click menu**: on Windows, the real Explorer menu (Open with, Send to, 7-Zip, Git, Properties…) plus a few VimCommander items. On Linux and macOS, VimCommander's own menu.
 - **Tabs** in each pane, a **drive menu** (`Alt-F1` / `Alt-F2` or the drive button), and free space in the status bar.
-- **Quick view** (`Ctrl-q`): the other pane previews text files, images and folders as you move.
+- **Quick view** (`Ctrl-q`): the other pane previews text files, images, PDFs and folders as you move. Markdown notes are rendered, and their Obsidian `[[links]]` and embedded images work: click a link to go to that note.
 - **Which-key and command palette**: pause after a prefix like `g`, `z`, `"` or `Ctrl-w` and the possible next keys are listed; `Ctrl-Shift-p` finds any action or command by typing part of its name.
 - **Fuzzy file finder** (`Ctrl-p`): find any file below the current folder by a few letters, fzf style, ranked with your zoxide history, with a live preview.
 - **Result lists**: `:find`, `:grep`, the file finder and the activity calendar can fill a pane with files from many folders, where tagging, copying, moving, renaming and trashing work as in any folder.
@@ -79,7 +79,7 @@ VimCommander combines the layout of Total Commander with the keyboard of [vifm](
 - **SSH folders** (`:ssh user@host`): a folder on a server opens in a pane like a local one; copy and move across with `F5` / `F6` or drag and drop, edit remote files in your editor (saving uploads them), get a shell on the server in the terminal panel, and `:mirror` a local folder to the server.
 - **Share with a phone** (`:share`): scan a QR code to download the tagged files on your phone, or send photos from the phone into the current folder. No app or cloud needed.
 - **Activity calendar** (`gr`): a GitHub-style heatmap of when files changed, and the recent files day by day.
-- **Folder graph**, Obsidian style: in quick view a folder shows as a graph of its subfolders 1–3 levels deep, with files grouped by extension and node size by disk usage. A **sunburst** shows disk usage as rings, a **notes mode** draws the links between Markdown notes, like Obsidian's graph view, and a **code mode** draws the imports between source files, so a project's hub files stand out.
+- **Folder graph**, Obsidian style: in quick view a folder shows as a graph of its subfolders 1–3 levels deep, with files grouped by extension and node size by disk usage. A **sunburst** or **treemap** shows disk usage, a **timeline** shows when each subfolder's files changed, a **types** view shows what each subfolder is made of, a **notes mode** draws the links between Markdown notes, like Obsidian's graph view, and a **code mode** draws the imports between source files, so a project's hub files stand out.
 - **Zip files as folders**: open a `.zip` with `Enter` and browse it; copy files out with `F5` or `yy` / `p`.
 - **zoxide integration**: every folder you open is recorded in [zoxide](https://github.com/ajeetdsouza/zoxide), so `:z proj` jumps there, and `gz` picks from the list. The database is shared with `z` in your shell.
 - **Find files** below the current folder with `:find *.log` (as a result list), and add up **folder sizes** with `gs`.
@@ -323,6 +323,7 @@ Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 | `:find PATTERN` | search the names in this folder and all subfolders, `*.log` or plain text to match part of a name; the pane shows the matches as a [result list](#result-lists) (`Esc` stops a long search) |
 | `:grep [TEXT]` | [search inside the files](#search-in-files) below this folder (same as `g/`) |
 | `:results`, `:res` | show the pane's last [result list](#result-lists) again |
+| `:obsidian` | open the note (or folder) under the cursor in Obsidian |
 | `:diffthis [FILE]` | [diff](#side-by-side-diff) two files: tagged, under both cursors (`gd`), or the cursor's file and FILE |
 | `:shelf [add\|copy\|move\|zip [NAME]\|list\|clear]` | the [shelf](#shelf); no argument shows / hides it |
 | `:zip [NAME]` | pack the tagged items (or the cursor's) into `NAME.zip` in this folder; `u` removes it again |
@@ -344,7 +345,7 @@ Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 | `:bulkrename`, `:br` | [rename](#bulk-rename) the tagged items (or all items) as text, in a dialog or your editor |
 | `:compare`, `:diff` | [tag the differences](#compare-and-synchronize) between the two panes' folders |
 | `:synchronize` | [compare the panes' folder trees](#compare-and-synchronize) and copy what differs |
-| `:graph 1\|2\|3`, `size\|count`, `tree\|sunburst\|notes\|code`, `on\|off` | graph depth, what node size shows, the mode, graph in quick view on or off; several at once (`:graph 3 count`). Saved |
+| `:graph 1\|2\|3`, `size\|count`, `tree\|sunburst\|treemap\|timeline\|types\|notes\|code`, `on\|off` | graph depth, what node size shows, the mode, graph in quick view on or off; several at once (`:graph 3 count`). Saved |
 | `:z KEYWORDS` | jump to the best zoxide match, like `z` in a shell; `:z` alone = home. `Tab` cycles through the matches |
 | `:zi [KEYWORDS]` | pick from zoxide's list, same as `gz` |
 | `:undo`, `:redo` | same as `u` / `Ctrl-r` |
@@ -659,7 +660,7 @@ In an SSH folder:
 
 | To… | Do this |
 |---|---|
-| move around | as usual: `l`, `h`, `gg`, `/`, `=`, marks, tabs, the [thumbnail grid](#thumbnail-grid) (icons only) and quick view (`Ctrl-q` shows text and images) |
+| move around | as usual: `l`, `h`, `gg`, `/`, `=`, marks, tabs, the [thumbnail grid](#thumbnail-grid) (icons only) and quick view (`Ctrl-q` shows text, Markdown and images) |
 | copy or move between this computer and the server | `F5` / `F6` with the other pane, `yy` / `dd` + `p`, or drag files from the other pane or from Explorer onto it, with the progress dialog; modification times are kept |
 | edit a file | `F4` or `:e`: it is downloaded, opened in your editor, and **uploaded each time you save** it |
 | open a file | `Enter`: a copy is downloaded and opened with its app |
@@ -673,16 +674,24 @@ Local-only tools (`:find`, `:grep`, `Ctrl-p`, the graph, `gr`, `:dupes`, `:recla
 
 ## Folder graph
 
-Quick view (`Ctrl-q`) on a folder, or on `..` for the current folder, shows it as a graph in the style of Obsidian's graph view. The *Tree* / *Sunburst* / *Notes* / *Code* button (or `:graph tree|sunburst|notes|code`) switches between four views. `gG` or `:graph` opens the same graph in a big window of its own.
+Quick view (`Ctrl-q`) on a folder, or on `..` for the current folder, shows it as a graph in the style of Obsidian's graph view. The mode button (*Tree*, *Sunburst*, *Treemap*, *Timeline*, *Types*, *Notes*, *Code*), or `:graph MODE`, switches between seven views. `gG` or `:graph` opens the same graph in a big window of its own.
 
 **Tree mode** (the default) shows the shape of a folder at a glance:
 
 - The folder is in the middle, with its subfolders around it 1, 2 or 3 levels deep (buttons `1` `2` `3` at the top, or `:graph 2`).
 - Files are grouped by extension into one square per folder and extension ("142 × .jpg"), so big folders stay readable. When a folder has many items, the smallest are folded into one "+N more" dot.
 - Node size shows the total size on disk (button *Size*), or the number of files (button *Files*). Sizes of the outer folders are added up in the background; until that's done, the total ends in `+`.
-- Colors show the kind of content: folders blue, images yellow, video red, audio purple, code green, documents cyan, archives orange, programs light grey.
+- Colors show the kind of content: folders blue, images yellow, video red, audio purple, code green, documents cyan, archives orange, programs light grey, design files (Ansys, KiCad, CAD) teal, build output (`.o`, `.elf`, `.hex`) tan.
 
 **Sunburst mode** (`:graph sunburst`) answers "what's taking up space?": the folder is the circle in the middle, and each ring further out is one level deeper. A slice is as wide as its share of its parent, by size (or by number of files with *Files*), so big folders are big slices. Folders are colored by their angle (like Filelight), file groups by kind. Hover a slice for its size; click it to open it.
+
+**Treemap mode** (`:graph treemap`) shows the same as the sunburst as nested boxes, like WinDirStat: each box is as big as its size (or number of files), folders hold their subfolders' boxes with the name and size in a strip at the top, and folders under the same top-level folder share a color. Small things deep down stay visible, which the sunburst hides. Depth `1` `2` `3` sets how far down it goes.
+
+**Timeline mode** (`:graph timeline`) answers "when did I work on what?": one row per subfolder, newest activity on top, with a bar from its oldest to its newest file and a cell for each month in which files changed (darker = more files). The *All* row at the top is the whole folder. Dead projects, old backups and what you're busy with now stand out at once. Hover a row for its dates.
+
+**Types mode** (`:graph types`) shows what each subfolder is made of: one bar per subfolder, as long as its size (or number of files with *Files*), split by kind (code, design files such as Ansys, KiCad and CAD, documents, images, video, audio, archives, programs, build output such as `.o` / `.elf` / `.hex`, other) with the share in percent. The *All* row is the whole folder.
+
+Timeline and types read every file below the folder, up to 8 seconds; a folder not finished by then gets a `+` after its size.
 
 **Notes mode** (`:graph notes`) shows the Markdown files below the folder and the links between them, as in Obsidian: `[[wikilinks]]` (with `#heading` and `|alias`, matched by file name in any subfolder) and `[text](other.md)` links. A note's dot grows with its number of links; notes without links float alone. The layout settles like Obsidian's, and the `.obsidian` folder is skipped, so an Obsidian vault works as is.
 
@@ -752,6 +761,7 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
   "window": {"width": 1100, "height": 700, "maximized": false},
   "font": {"family": "", "size": 0},
   "monospace": {"enabled": true, "family": "", "size": 0},
+  "theme": "",
   "show_hidden": false,
   "git": true,
   "columns": false,
@@ -785,8 +795,9 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
 |---|---|
 | `window` | starting size in pixels, or start maximized (applies at start) |
 | `font` | font family and point size for the whole window; `""` / `0` = system default (applies at start) |
+| `theme` | `""` = the system look, `"catppuccin-mocha"` = [Catppuccin Mocha](https://catppuccin.com) for the whole window; see [Colors](#colors) |
 | `colors` | colors of the cursor, tagged items, search matches and more; see [Colors](#colors) |
-| `graph` | the [folder graph](#folder-graph): `enabled` (in quick view), `depth` (1–3), `size_by` (`"size"` or `"count"`), `mode` (`"tree"`, `"sunburst"`, `"notes"` or `"code"`), `max_nodes` (50–2000) |
+| `graph` | the [folder graph](#folder-graph): `enabled` (in quick view), `depth` (1–3), `size_by` (`"size"` or `"count"`), `mode` (`"tree"`, `"sunburst"`, `"treemap"`, `"timeline"`, `"types"`, `"notes"` or `"code"`), `max_nodes` (50–2000) |
 | `which_key_delay` | milliseconds after a prefix key before the [which-key](#which-key-and-command-palette) panel shows; `0` = never |
 | `monospace` | monospace font for the file lists, path headers, command line, status bar and quick view. `family` `""` picks the first installed of Cascadia Mono, Consolas, JetBrains Mono, SF Mono, Menlo, DejaVu Sans Mono, …; `size` `0` = same size as the window font; `"enabled": false` uses the window font instead |
 | `show_hidden` | show hidden files at start (`za` toggles) |
@@ -852,6 +863,8 @@ The `colors` section sets how the cursor and tagged items look. Changes show as 
 | `linked_missing` | with [linked panes](#linked-panes), items the other side doesn't have |
 
 Write colors as `#rrggbb`, as `#rrggbbaa` where `aa` is the opacity (`00` transparent to `ff` solid; `4d` is about 30%), or as a name such as `orange`. `""` uses the system theme's color. A color the app can't read is reported in the status bar and the default is used.
+
+`"theme": "catppuccin-mocha"` (or `"mocha"`) gives the whole window [Catppuccin Mocha](https://catppuccin.com/palette) colors: the lists, dialogs, graph, diff and grep views. It also replaces the defaults above with Mocha ones (a blue cursor, red tags, peach / green git colors); a color you changed from its default is kept. `""` goes back to the system look. Both apply as soon as you save the file.
 
 ### Programs
 

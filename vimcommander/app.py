@@ -34,7 +34,7 @@ from .terminal import Terminal
 from .sync import SyncDialog
 from .whichkey import WhichKey, pretty
 from .bar import BarItem, LaunchBar, default_items, default_terminal, item_for_path, run_command
-from . import zoxide
+from . import theme, zoxide
 from .dialogs import ProgressDialog, ZoxideDialog, ask_conflict
 from .fileops import Job, SizeJob, unique_dest
 from .pane import DIR_SIZES, SORT_KEYS, Entry, Pane, Results, child_name, human_size, set_colors
@@ -157,7 +157,7 @@ HELP = """\
 &nbsp;&nbsp;cw/F2 = rename, cW = rename without extension, F7 = new folder, za = show/hide hidden files
 &nbsp;&nbsp;F3 = view, F4 = edit (programs set in the config file), S = terminal here
 &nbsp;&nbsp;Ctrl-q = quick view in the other pane (a folder shows as a graph), gs = folder size, gS = all folder sizes here
-&nbsp;&nbsp;gG or :graph = graph window; :graph 1|2|3, size|count, tree|sunburst|notes|code, on|off
+&nbsp;&nbsp;gG or :graph = graph window; :graph 1|2|3, size|count, tree|sunburst|treemap|timeline|types|notes|code, on|off
 &nbsp;&nbsp;(notes = Markdown links, code = imports between source files; big dots are imported by many)
 &nbsp;&nbsp;right-click, Menu key or Shift-F10 = context menu (on Windows the Explorer menu;
 &nbsp;&nbsp;Shift+right-click adds extended items, Ctrl+right-click shows VimCommander's own menu)
@@ -174,8 +174,9 @@ HELP = """\
 &nbsp;&nbsp;:tabs, :tabmove N, :set clipboard=unnamedplus (y / p use the system clipboard)
 <b>Tools</b>: Ctrl-Shift-p = command palette, Ctrl-p = find files (fuzzy, zoxide-ranked), gr = activity calendar
 &nbsp;&nbsp;:bulkrename = rename in an editor, :compare = tag differences, :synchronize = sync the panes' folders
-&nbsp;&nbsp;:graph sunburst = disk usage rings; after g, z, y, ", m, ', q, @, Ctrl-w the next keys are listed
+&nbsp;&nbsp;:graph sunburst / treemap = disk usage, :graph timeline = when folders changed, :graph types = what they hold; after g, z, y, ", m, ', q, @, Ctrl-w the next keys are listed
 &nbsp;&nbsp;g/ or :grep TEXT = search inside files (Enter = edit at the line, Ctrl-Enter = files as a list)
+&nbsp;&nbsp;Quick view renders Markdown (click a [[link]] to go to the note) and PDFs; :obsidian = open in Obsidian
 &nbsp;&nbsp;gd or :diffthis = two files side by side (tagged, or both cursors): ]c / [c = next / previous change
 <b>Result lists</b>: :find, :grep, Ctrl-p + Ctrl-Enter and gr fill the pane with files from many folders;
 &nbsp;&nbsp;tag, yy, F5, Del, cw work as usual; h = back to the folder, gf = go to the file, :results = show again
@@ -470,6 +471,7 @@ class MainWindow(QMainWindow):
             pane.git_timer = timer
             pane.preview.graph.open_requested.connect(self.on_graph_open)
             pane.preview.graph.options_changed.connect(self.save_graph_options)
+            pane.preview.markdown.open_requested.connect(self.on_note_link)
 
         self.mode_label = QLabel()
         self.prompt_label = QLabel()
@@ -1989,6 +1991,26 @@ class MainWindow(QMainWindow):
         pane.view.setFocus()
         self.update_status()
 
+    def on_note_link(self, path: str) -> None:
+        """A click on a link in a previewed note: go to that file in the active pane."""
+        self.pane.cd(os.path.dirname(path), select=os.path.basename(path))
+        self.pane.view.setFocus()
+        self.update_status()
+
+    def ex_obsidian(self, arg):
+        """:obsidian: open the note (or folder) under the cursor in Obsidian."""
+        if self._local_only("Obsidian"):
+            return
+        entry = self.pane.current_entry()
+        path = entry.path if entry and not entry.is_parent else self.pane.path
+        if archive.locate(path):
+            self.show_message("Obsidian can't open files inside an archive")
+            return
+        url = QUrl("obsidian://open")
+        url.setQuery("path=" + QUrl.toPercentEncoding(os.path.abspath(path)).data().decode())
+        if not QDesktopServices.openUrl(url):
+            self.show_message("Cannot open Obsidian (is it installed?)")
+
     def save_graph_options(self) -> None:
         self.save_settings({"graph": dict(graphview.OPTIONS)})
         for pane in self.panes:
@@ -2000,7 +2022,7 @@ class MainWindow(QMainWindow):
             self.ex_graph("")
 
     def ex_graph(self, arg):
-        """:graph opens a graph window; :graph 1|2|3, size|count, tree|sunburst|notes|code, on|off set options."""
+        """:graph opens a graph window; :graph 1|2|3, size|count, tree|sunburst|treemap|timeline|types|notes|code, on|off set options."""
         if arg:
             words = arg.split()
             for word in words:
@@ -2008,12 +2030,12 @@ class MainWindow(QMainWindow):
                     graphview.OPTIONS["depth"] = int(word)
                 elif word in ("size", "count", "files"):
                     graphview.OPTIONS["size_by"] = "count" if word == "files" else word
-                elif word in ("tree", "notes", "sunburst", "code"):
+                elif word in graphview.MODES:
                     graphview.OPTIONS["mode"] = word
                 elif word in ("on", "off"):
                     graphview.OPTIONS["enabled"] = word == "on"
                 else:
-                    self.show_message("Usage: :graph [1|2|3] [size|count] [tree|sunburst|notes|code] [on|off]")
+                    self.show_message("Usage: :graph [1|2|3] [size|count] [tree|sunburst|treemap|timeline|types|notes|code] [on|off]")
                     return
             self.save_graph_options()
             for pane in self.panes:
@@ -3209,13 +3231,15 @@ class MainWindow(QMainWindow):
             program = zoxide.find(s["programs"].get("zoxide", ""))
             if program != (self.zoxide.program if self.zoxide else None):
                 self.zoxide = zoxide.Zoxide(program) if program else None
-            bad_colors = set_colors(s.get("colors") or {})
+            if not theme.apply(s.get("theme") or ""):
+                bad.append(f"theme: {s.get('theme')}")
+            bad_colors = set_colors(s.get("colors") or {}, theme.color_defaults(s.get("theme") or ""))
             options = s.get("graph") or {}
             graphview.OPTIONS.update({
                 "enabled": bool(options.get("enabled", True)),
                 "depth": min(3, max(1, int(options.get("depth", 2)))),
                 "size_by": "count" if options.get("size_by") == "count" else "size",
-                "mode": options.get("mode") if options.get("mode") in ("notes", "sunburst", "code") else "tree",
+                "mode": options.get("mode") if options.get("mode") in graphview.MODES else "tree",
                 "max_nodes": min(2000, max(50, int(options.get("max_nodes", 400)))),
             })
             font, font_warning = monospace_font(s.get("monospace") or {})
@@ -3370,6 +3394,8 @@ def main() -> None:
         sys.excepthook = show_exception
     app = QApplication(sys.argv)
     app.setApplicationName("VimCommander")
+    from . import appicon
+    app.setWindowIcon(appicon.icon())
     error = None
     try:
         settings = config.with_defaults(config.load())

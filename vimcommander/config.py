@@ -30,6 +30,9 @@ DEFAULTS = {
     "font": {"family": "", "size": 0},  # empty / 0 = system default
     # File lists, paths, command line and quick view. Empty family = best installed one.
     "monospace": {"enabled": True, "family": "", "size": 0},
+    # "" = the system look, "catppuccin-mocha" = Catppuccin Mocha (the whole window and
+    # the defaults of "colors", which still win where you change them)
+    "theme": "",
     # Colors: "#rrggbb", "#rrggbbaa" (aa = opacity, 00-ff) or a name like "red";
     # empty = the system theme's color.
     "colors": {
@@ -50,8 +53,9 @@ DEFAULTS = {
         "linked_missing": "#a056e0",   # :linkpanes: items the other pane lacks
     },
     # Graph in the quick view of a folder: depth 1-3, node size by "size" or "count",
-    # mode "tree" (folders), "sunburst" (disk usage), "notes" (Markdown files and their
-    # links) or "code" (source files and their imports).
+    # mode "tree" (folders), "sunburst" / "treemap" (disk usage), "timeline" (when each
+    # subfolder changed), "types" (kinds of files per subfolder), "notes" (Markdown files
+    # and their links) or "code" (source files and their imports).
     "graph": {"enabled": True, "depth": 2, "size_by": "size", "mode": "tree", "max_nodes": 400},
     "show_hidden": False,
     "git": True,  # color files by their git status and show the branch (needs git)

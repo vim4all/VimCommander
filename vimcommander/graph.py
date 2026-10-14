@@ -7,6 +7,10 @@ radial tree. Notes mode: the Markdown files below a folder and the
 simulation, like Obsidian's graph view. Code mode: the source files below a
 folder and the imports between them (Python, JS/TS, C/C++, Go, Rust), laid out
 the same way, so the files many others import stand out as hubs.
+
+Treemap mode uses the tree scan, laid out by layout_treemap(). Timeline and
+types modes use scan_folders(): one node per subfolder with the first and last
+change of its files, changes per month, and bytes / files per category.
 """
 
 import math
@@ -24,12 +28,18 @@ CATEGORIES = {
     "audio": {".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".opus", ".wma"},
     "code": {".py", ".js", ".ts", ".tsx", ".jsx", ".c", ".h", ".cpp", ".hpp", ".cs", ".java",
              ".go", ".rs", ".rb", ".php", ".sh", ".ps1", ".bat", ".lua", ".kt", ".swift",
-             ".json", ".yaml", ".yml", ".toml", ".xml", ".html", ".css", ".sql", ".ipynb"},
+             ".json", ".yaml", ".yml", ".toml", ".xml", ".html", ".css", ".sql", ".ipynb",
+             ".s", ".asm", ".ld", ".ioc", ".mk", ".cmake", ".ino", ".m", ".v", ".vhd", ".sv"},
     "document": {".md", ".txt", ".pdf", ".doc", ".docx", ".odt", ".rtf", ".xls", ".xlsx",
                  ".ods", ".csv", ".ppt", ".pptx", ".odp", ".epub", ".tex"},
     "archive": {".zip", ".7z", ".rar", ".tar", ".gz", ".bz2", ".xz", ".iso", ".jar", ".whl",
                 ".deb", ".rpm", ".msi", ".dmg"},
     "program": {".exe", ".dll", ".so", ".dylib", ".app", ".appimage", ".bin"},
+    "build": {".o", ".obj", ".elf", ".axf", ".hex", ".map", ".lst", ".d", ".su", ".a", ".lib",
+              ".pdb", ".ilk", ".pyc", ".class", ".srec"},
+    "design": {".aedt", ".aedtz", ".kicad_pcb", ".kicad_sch", ".kicad_pro", ".sch", ".brd",
+               ".pcbdoc", ".schdoc", ".prjpcb", ".dsn", ".step", ".stp", ".stl", ".iges", ".dwg",
+               ".dxf", ".f3d", ".sldprt", ".sldasm", ".slx", ".mdl", ".psimsch", ".asc", ".graphml"},
 }
 _BY_EXT = {ext: cat for cat, exts in CATEGORIES.items() for ext in exts}
 SKIP_DIRS = {".git", ".svn", ".hg", "node_modules", "__pycache__", ".obsidian", ".venv",
@@ -58,6 +68,10 @@ class Node:
     children: list[int] = field(default_factory=list)
     complete: bool = True  # False while the size of a leaf folder's subtree is unknown
     links: int = 0  # notes mode: number of links
+    first: float = 0.0  # timeline: oldest and newest file change (mtime)
+    last: float = 0.0
+    months: dict[int, int] = field(default_factory=dict)  # timeline: year * 12 + month - 1 -> changes
+    mix: dict[str, list[int]] = field(default_factory=dict)  # types: category -> [bytes, files]
     x: float = 0.0
     y: float = 0.0
 
@@ -66,7 +80,7 @@ class Node:
 class Graph:
     nodes: list[Node]
     edges: list[tuple[int, int]]
-    mode: str  # "tree" | "sunburst" | "notes" | "code"
+    mode: str  # "tree" | "sunburst" | "treemap" | "timeline" | "types" | "notes" | "code"
     root: str
     truncated: bool = False  # some items were left out
 
@@ -210,6 +224,163 @@ def fill_sizes(graph: Graph, stop: threading.Event | None = None, budget: float 
             break
     _aggregate(graph.nodes)
     return all_done
+
+
+# Treemap
+
+def squarify(items: list[tuple[int, float]], x: float, y: float, w: float, h: float
+             ) -> list[tuple[int, float, float, float, float]]:
+    """Squarified treemap (Bruls et al.): (key, weight) items, biggest first, to
+    (key, x, y, w, h) rectangles filling the area, as square as they can be."""
+    items = [(k, wt) for k, wt in items if wt > 0]
+    total = sum(wt for _, wt in items)
+    out: list[tuple[int, float, float, float, float]] = []
+    if total <= 0 or w <= 0 or h <= 0:
+        return out
+    scale = w * h / total
+    areas = [(k, wt * scale) for k, wt in items]
+
+    def worst(row, side):
+        s = sum(a for _, a in row)
+        return max(side * side * row[0][1] / (s * s), s * s / (side * side * row[-1][1]))
+
+    while areas:
+        side = min(w, h)
+        row, i = [areas[0]], 1
+        while i < len(areas) and worst(row + [areas[i]], side) <= worst(row, side):
+            row.append(areas[i])
+            i += 1
+        areas = areas[i:]
+        s = sum(a for _, a in row)
+        if w >= h:  # a column at the left
+            cw, yy = s / h, y
+            for k, a in row:
+                out.append((k, x, yy, cw, a / cw))
+                yy += a / cw
+            x, w = x + cw, w - cw
+        else:  # a row at the top
+            rh, xx = s / w, x
+            for k, a in row:
+                out.append((k, xx, y, a / rh, rh))
+                xx += a / rh
+            y, h = y + rh, h - rh
+    return out
+
+
+def layout_treemap(graph: Graph, x: float, y: float, w: float, h: float, by_size: bool = True,
+                   header: float = 15.0, pad: float = 2.0) -> list[tuple[int, float, float, float, float]]:
+    """Every node below the root as (index, x, y, w, h), parents before their
+    children. A folder keeps a `header` strip at its top for its name."""
+    nodes = graph.nodes
+    out: list[tuple[int, float, float, float, float]] = []
+
+    def weight(n: Node) -> float:
+        return max(n.size if by_size else n.count, 0)
+
+    def place(i: int, x: float, y: float, w: float, h: float) -> None:
+        kids = sorted(nodes[i].children, key=lambda k: -weight(nodes[k]))
+        for k, kx, ky, kw, kh in squarify([(k, weight(nodes[k])) for k in kids], x, y, w, h):
+            out.append((k, kx, ky, kw, kh))
+            if nodes[k].children and kw > 4 * pad + 12 and kh > header + 3 * pad + 8:
+                place(k, kx + pad, ky + header, kw - 2 * pad, kh - header - pad)
+
+    place(0, x, y, w, h)
+    return out
+
+
+# Timeline and types: a summary of each subfolder
+
+def _month(t: float) -> int:
+    d = time.localtime(t)
+    return d.tm_year * 12 + d.tm_mon - 1
+
+
+def _add_file(node: Node, name: str, st: os.stat_result, now: float) -> None:
+    node.count += 1
+    node.size += st.st_size
+    ext = os.path.splitext(name)[1] if "." in name[1:] else ""
+    mix = node.mix.setdefault(category(ext), [0, 0])
+    mix[0] += st.st_size
+    mix[1] += 1
+    t = st.st_mtime
+    if 315532800 < t <= now + 86400:  # 1980..now: ignore broken dates
+        node.first = min(node.first, t) if node.first else t
+        node.last = max(node.last, t)
+        m = _month(t)
+        node.months[m] = node.months.get(m, 0) + 1
+
+
+def scan_folders(root: str, show_hidden: bool = False, stop: threading.Event | None = None,
+                 budget: float = 8.0, max_folders: int = 400) -> Graph:
+    """The root (totals) and one node per subfolder (its whole subtree), plus a
+    "files here" node for the files directly in root. A subtree not finished
+    within `budget` seconds is marked complete=False."""
+    now = time.time()
+    deadline = time.monotonic() + budget
+    nodes = [Node(os.path.basename(root.rstrip("/\\")) or root, root, "root")]
+    here = Node("(files here)", root, "files", "other", depth=1, parent=0)
+    folders, truncated = [], False
+    try:
+        entries = sorted(os.scandir(root), key=lambda e: e.name.lower())
+    except OSError:
+        entries = []
+    for e in entries:
+        if not _visible(e.name, show_hidden):
+            continue
+        try:
+            if e.is_dir(follow_symlinks=False):
+                if e.name in SKIP_DIRS:
+                    continue
+                if len(folders) >= max_folders:
+                    truncated = True
+                    continue
+                folders.append(Node(e.name, e.path, "folder", depth=1, parent=0))
+            else:
+                _add_file(here, e.name, e.stat(follow_symlinks=False), now)
+        except OSError:
+            pass
+    for node in folders:
+        stack = [node.path]
+        while stack:
+            if (stop and stop.is_set()) or time.monotonic() > deadline:
+                node.complete = False
+                truncated = True
+                break
+            try:
+                with os.scandir(stack.pop()) as it:
+                    for e in it:
+                        if not _visible(e.name, show_hidden):
+                            continue
+                        try:
+                            if e.is_dir(follow_symlinks=False):
+                                if e.name not in SKIP_DIRS:
+                                    stack.append(e.path)
+                            else:
+                                _add_file(node, e.name, e.stat(follow_symlinks=False), now)
+                        except OSError:
+                            pass
+            except OSError:
+                pass
+        if stop and stop.is_set():
+            break
+    rootnode = nodes[0]
+    for n in folders + ([here] if here.count else []):
+        n.parent = 0
+        rootnode.children.append(len(nodes))
+        nodes.append(n)
+        rootnode.size += n.size
+        rootnode.count += n.count
+        rootnode.complete = rootnode.complete and n.complete
+        for cat, (b, c) in n.mix.items():
+            mix = rootnode.mix.setdefault(cat, [0, 0])
+            mix[0] += b
+            mix[1] += c
+        for m, c in n.months.items():
+            rootnode.months[m] = rootnode.months.get(m, 0) + c
+        if n.first:
+            rootnode.first = min(rootnode.first, n.first) if rootnode.first else n.first
+            rootnode.last = max(rootnode.last, n.last)
+    return Graph(nodes, [(0, i) for i in range(1, len(nodes))], "timeline", root, truncated)
 
 
 def layout_radial(graph: Graph, ring: float = 120.0) -> None:

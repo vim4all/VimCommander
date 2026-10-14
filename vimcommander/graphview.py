@@ -3,12 +3,16 @@
 Wheel zooms around the mouse, dragging pans, hovering highlights a node and its
 neighbours, clicking opens the node in the active pane, double-clicking opens a
 note or file group with its app. The toolbar sets the depth, what node size
-means, and the mode: tree, sunburst, notes or code. Scanning runs in a thread.
+means, and the mode: tree, sunburst, treemap, timeline (when each subfolder's
+files changed), types (what each subfolder is made of), notes or code.
+Scanning runs in a thread. The sunburst, treemap, timeline and types always
+fit the view; they keep their hit areas in self._rects / self._arcs.
 """
 
 import math
 import os
 import threading
+import time
 
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPalette, QPen
@@ -25,13 +29,18 @@ def human_size(n: int) -> str:
 COLORS = {  # node colors by kind of content
     "root": "#a882ff", "folder": "#7aa2f7", "image": "#e0af68", "video": "#f7768e",
     "audio": "#bb9af7", "code": "#9ece6a", "document": "#7dcfff", "archive": "#ff9e64",
-    "program": "#c0caf5", "other": "#8a8fa3",
+    "program": "#c0caf5", "build": "#b4a48c", "design": "#2ac3de", "other": "#8a8fa3",
     # code mode: by language
     "python": "#4b8bbe", "js": "#e8d44d", "ts": "#3178c6", "c": "#a8b9cc", "cpp": "#f34b7d",
     "go": "#00add8", "rust": "#dea584",
 }
 FORCE_MODES = ("notes", "code")  # laid out by the force simulation
-NEXT_MODE = {"tree": "sunburst", "sunburst": "notes", "notes": "code", "code": "tree"}
+SUMMARY_MODES = ("timeline", "types")  # one row per subfolder, from graph.scan_folders()
+FIXED_MODES = ("sunburst", "treemap") + SUMMARY_MODES  # fit the view: no zoom or panning
+MODES = ("tree", "sunburst", "treemap", "timeline", "types", "notes", "code")
+NEXT_MODE = {m: MODES[(i + 1) % len(MODES)] for i, m in enumerate(MODES)}
+TYPE_ORDER = ("code", "design", "document", "image", "video", "audio", "archive", "program", "build",
+              "other")
 
 # Shared by every graph view; set from the config's "graph" section.
 OPTIONS = {"enabled": True, "depth": 2, "size_by": "size", "mode": "tree", "max_nodes": 400}
@@ -56,10 +65,17 @@ class _Scanner(QObject):
             if not self.stop.is_set():
                 self.ready.emit(token, graph)
             return
+        if options["mode"] in SUMMARY_MODES:
+            graph = g.scan_folders(path, show_hidden, self.stop, budget=8.0,
+                                   max_folders=options["max_nodes"])
+            graph.mode = options["mode"]
+            if not self.stop.is_set():
+                self.ready.emit(token, graph)
+            return
         graph = g.scan_tree(path, options["depth"], show_hidden, options["size_by"], self.stop,
                             options["max_nodes"])
-        if options["mode"] == "sunburst":
-            graph.mode = "sunburst"
+        if options["mode"] in FIXED_MODES:
+            graph.mode = options["mode"]
         else:
             g.layout_radial(graph)
         if self.stop.is_set():
@@ -94,6 +110,7 @@ class GraphView(QWidget):
         self._force: g.ForceLayout | None = None
         self._steps = 0
         self._arcs: list[tuple] = []  # sunburst slices, for hit-testing
+        self._rects: list[tuple[int, QRectF]] = []  # treemap boxes and timeline / types rows
         self._timer = QTimer(self, interval=16)
         self._timer.timeout.connect(self._animate)
         self._debounce = QTimer(self, singleShot=True, interval=150)
@@ -117,8 +134,9 @@ class GraphView(QWidget):
         self.size_button = self._button("", "Node size: total size or number of files")
         self.size_button.clicked.connect(lambda: self.set_option(
             "size_by", "count" if OPTIONS["size_by"] == "size" else "size"))
-        self.mode_button = self._button("", "Tree of folders, sunburst of disk usage, Markdown notes "
-                                             "and their links, or source files and their imports")
+        self.mode_button = self._button("", "Tree of folders, sunburst or treemap of disk usage, "
+                                             "timeline of changes, file types per folder, Markdown "
+                                             "notes and their links, or source files and their imports")
         self.mode_button.clicked.connect(lambda: self.set_option(
             "mode", NEXT_MODE.get(OPTIONS["mode"], "tree")))
         fit = self.fit_button = self._button("Fit", "Zoom to fit")
@@ -143,13 +161,13 @@ class GraphView(QWidget):
         button = self.depth_buttons.button(OPTIONS["depth"])
         if button:
             button.setChecked(True)
-        folders = OPTIONS["mode"] not in FORCE_MODES
+        mode = OPTIONS["mode"]
         for b in self.depth_buttons.buttons():
-            b.setEnabled(folders)
+            b.setEnabled(mode in ("tree", "sunburst", "treemap"))
         self.size_button.setText("Size" if OPTIONS["size_by"] == "size" else "Files")
-        self.size_button.setEnabled(folders)
-        self.mode_button.setText(OPTIONS["mode"].capitalize())
-        self.fit_button.setVisible(OPTIONS["mode"] != "sunburst")
+        self.size_button.setEnabled(mode in ("tree", "sunburst", "treemap", "types"))
+        self.mode_button.setText(mode.capitalize())
+        self.fit_button.setVisible(mode not in FIXED_MODES)
 
     def set_option(self, key: str, value) -> None:
         OPTIONS[key] = value
@@ -209,10 +227,14 @@ class GraphView(QWidget):
             self._force = g.ForceLayout(graph)
             self._steps = 0
             self._grow = 1.0
+        elif graph.mode in ("treemap",) + SUMMARY_MODES:
+            self._force = None
+            self._grow = 1.0
         else:
             self._force = None
             self._grow = 0.0
         self._arcs = []
+        self._rects = []
         self.fit()
         self._timer.start()
 
@@ -237,13 +259,24 @@ class GraphView(QWidget):
                            "Click Code to go back to the tree")
             if hubs:
                 self.status += "; most imported: " + ", ".join(f"{x.name} ({x.count})" for x in hubs)
+        elif graph.mode in SUMMARY_MODES:
+            root = graph.nodes[0]
+            size = human_size(root.size) + ("" if root.complete else "+")
+            self.status = f"{len(graph.nodes) - 1} folders, {root.count:,} files, {size}"
+            if graph.mode == "timeline":
+                if root.first:
+                    self.status += (f", changed {time.strftime('%Y-%m', time.localtime(root.first))}"
+                                    f" … {time.strftime('%Y-%m', time.localtime(root.last))}")
+                self.status += "   (darker = more files changed that month)"
+            else:
+                self.status += "   (bars by " + ("size)" if OPTIONS["size_by"] == "size" else "number of files)")
         else:
             root = graph.nodes[0]
             folders = sum(1 for x in graph.nodes if x.kind == "folder")
             size = human_size(root.size) + ("" if root.complete else "+")
             self.status = f"{folders} folders shown, {root.count:,} files, {size}"
-            if graph.mode == "sunburst":
-                self.status += "   (slices: share of the parent by " + (
+            if graph.mode in ("sunburst", "treemap"):
+                self.status += "   (" + ("slices" if graph.mode == "sunburst" else "boxes") + ": share of the parent by " + (
                     "size)" if OPTIONS["size_by"] == "size" else "number of files)")
         if graph.truncated:
             self.status += "   (some items grouped or left out)"
@@ -304,6 +337,11 @@ class GraphView(QWidget):
             return -1
         if self.graph.mode == "sunburst":
             return self._arc_at(pos)
+        if self.graph.mode in FIXED_MODES:
+            for i, rect in reversed(self._rects):  # the deepest box first
+                if rect.contains(pos):
+                    return i
+            return -1
         best, best_d = -1, 1e9
         for i, n in enumerate(self.graph.nodes):
             p = self._screen(n)
@@ -321,6 +359,12 @@ class GraphView(QWidget):
         graph = self.graph
         if graph is not None and graph.nodes and graph.mode == "sunburst":
             self._paint_sunburst(p, graph, text)
+        elif graph is not None and graph.nodes and graph.mode == "treemap":
+            self._paint_treemap(p, graph, text)
+        elif graph is not None and graph.nodes and graph.mode == "timeline":
+            self._paint_timeline(p, graph, text)
+        elif graph is not None and graph.nodes and graph.mode == "types":
+            self._paint_types(p, graph, text)
         elif graph is not None and graph.nodes:
             active = self.hover
             near = self.neighbours.get(active, set()) | {active} if active >= 0 else None
@@ -387,7 +431,7 @@ class GraphView(QWidget):
         p.setPen(pal.color(QPalette.ColorRole.PlaceholderText))
         p.drawText(QRectF(self.rect()).adjusted(8, 0, -8, -4),
                    Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft,
-                   self.status + ("   click = open" if self.graph and self.graph.mode == "sunburst"
+                   self.status + ("   click = open" if self.graph and self.graph.mode in FIXED_MODES
                                   else "   wheel = zoom, drag = move, click = open"))
         p.end()
 
@@ -521,11 +565,246 @@ class GraphView(QWidget):
             w = metrics.horizontalAdvance(line)
             p.drawText(QPointF(center.x() - w / 2, center.y() + dy + metrics.ascent() / 2 - 2), line)
 
+    # Treemap: boxes as big as their size, nested like the folders
+
+    def _hue(self, graph: g.Graph, i: int) -> float:
+        """Folders under the same top-level folder share a hue."""
+        nodes = graph.nodes
+        while nodes[i].depth > 1 and nodes[i].parent > 0:
+            i = nodes[i].parent
+        rank = nodes[0].children.index(i) if i in nodes[0].children else 0
+        return (rank * 0.618034) % 1.0
+
+    def _box_color(self, graph: g.Graph, i: int) -> QColor:
+        node = graph.nodes[i]
+        if node.kind == "folder":
+            return QColor.fromHsvF(self._hue(graph, i), max(0.18, 0.5 - 0.1 * (node.depth - 1)),
+                                   min(0.95, 0.78 + 0.05 * node.depth))
+        if node.kind == "more":
+            return QColor(COLORS["other"])
+        return QColor(COLORS.get(node.category, COLORS["other"]))
+
+    def _paint_treemap(self, p: QPainter, graph: g.Graph, text: QColor) -> None:
+        font = QFont(self.font())
+        font.setPointSizeF(max(7.0, font.pointSizeF() * 0.85))
+        p.setFont(font)
+        metrics = QFontMetricsF(font)
+        area = self._area().adjusted(6, 0, -6, 0)
+        boxes = g.layout_treemap(graph, area.x(), area.y(), area.width(), area.height(),
+                                 OPTIONS["size_by"] == "size", header=metrics.height() + 2)
+        self._rects = [(i, QRectF(x, y, w, h)) for i, x, y, w, h in boxes]
+        border = QPen(self.palette().color(QPalette.ColorRole.Base))
+        border.setWidthF(1.0)
+        dark = QColor("#111111")
+        for i, rect in self._rects:
+            if rect.width() < 1 or rect.height() < 1:
+                continue
+            node = graph.nodes[i]
+            color = self._box_color(graph, i)
+            if self.hover >= 0 and i != self.hover and node.kind != "folder":
+                color.setAlpha(170)
+            p.setPen(border)
+            p.setBrush(color)
+            p.drawRect(rect)
+            if node.kind == "folder" and node.children:  # name in the header strip
+                line = f"{node.name}  {human_size(node.size) if OPTIONS['size_by'] == 'size' else node.count}"
+                room = rect.width() - 6
+                if room > 24 and rect.height() > metrics.height():
+                    p.setPen(dark)
+                    p.drawText(QPointF(rect.left() + 3, rect.top() + 1 + metrics.ascent()),
+                               metrics.elidedText(line, Qt.TextElideMode.ElideRight, room))
+            elif rect.width() > 30 and rect.height() > metrics.height() + 2:
+                p.setPen(dark)
+                lines = [node.name]
+                if rect.height() > 2 * metrics.height() + 4:
+                    lines.append(human_size(node.size) if OPTIONS["size_by"] == "size" else f"{node.count:,}")
+                for k, line in enumerate(lines):
+                    p.drawText(QPointF(rect.left() + 3, rect.top() + 2 + metrics.ascent() + k * metrics.height()),
+                               metrics.elidedText(line, Qt.TextElideMode.ElideRight, rect.width() - 6))
+        for i, rect in self._rects:
+            if i == self.hover:
+                outline = QPen(text)
+                outline.setWidthF(2)
+                p.setPen(outline)
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawRect(rect.adjusted(1, 1, -1, -1))
+
+    # Timeline and types: one row per subfolder
+
+    def _row_layout(self, graph: g.Graph, order: list[int], metrics: QFontMetricsF, top_extra: float,
+                    bottom_extra: float) -> tuple[list[tuple[int, QRectF]], float, int]:
+        """Rows for `order` (root first) that fit: ([(index, row rect)], label width, hidden rows)."""
+        area = self._area().adjusted(6, top_extra, -6, -bottom_extra)
+        height = max(metrics.height() + 4, min(22.0, area.height() / max(len(order), 1)))
+        fit = max(1, int(area.height() // height))
+        hidden = max(0, len(order) - fit)
+        if hidden:
+            fit -= 1  # room for the "N more" line
+            hidden += 1
+        shown = order[:fit]
+        widest = max((metrics.horizontalAdvance(graph.nodes[i].name) for i in shown), default=40)
+        label = min(area.width() * 0.32, widest + 12)
+        rows = [(i, QRectF(area.left(), area.top() + k * height, area.width(), height))
+                for k, i in enumerate(shown)]
+        return rows, label, hidden
+
+    def _row_label(self, p: QPainter, graph: g.Graph, i: int, row: QRectF, label: float,
+                   metrics: QFontMetricsF, text: QColor) -> None:
+        if i == self.hover:
+            hl = QColor(text)
+            hl.setAlpha(28)
+            p.fillRect(row, hl)
+        node = graph.nodes[i]
+        font = p.font()
+        if i == 0:
+            bold = QFont(font)
+            bold.setBold(True)
+            p.setFont(bold)
+        p.setPen(text)
+        p.drawText(QRectF(row.left() + 2, row.top(), label - 8, row.height()),
+                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                   metrics.elidedText("All" if i == 0 else node.name, Qt.TextElideMode.ElideRight, label - 8))
+        p.setFont(font)
+
+    def _paint_more(self, p: QPainter, rows, hidden: int, metrics: QFontMetricsF) -> None:
+        if hidden and rows:
+            last = rows[-1][1]
+            p.setPen(self.palette().color(QPalette.ColorRole.PlaceholderText))
+            p.drawText(QPointF(last.left() + 2, last.bottom() + metrics.ascent() + 2),
+                       f"+{hidden} more folders (a bigger pane shows more)")
+
+    def _paint_timeline(self, p: QPainter, graph: g.Graph, text: QColor) -> None:
+        nodes = graph.nodes
+        font = QFont(self.font())
+        font.setPointSizeF(max(7.0, font.pointSizeF() * 0.85))
+        p.setFont(font)
+        metrics = QFontMetricsF(font)
+        kids = sorted(nodes[0].children, key=lambda k: (-nodes[k].last, nodes[k].name.lower()))
+        rows, label, hidden = self._row_layout(graph, [0] + kids, metrics, metrics.height() + 6, 0)
+        self._rects = rows
+        dated = [nodes[i] for i, _ in rows if nodes[i].first]
+        if not rows or not dated:
+            p.setPen(text)
+            p.drawText(self._area(), Qt.AlignmentFlag.AlignCenter, "No files with dates here")
+            return
+        # From the oldest change to the newest (not to today: old trees would be mostly empty)
+        m0 = g._month(min(n.first for n in dated))
+        m1 = g._month(max(n.last for n in dated))
+        span = max(m1 - m0 + 1, 12)
+        m0 = m1 - span + 1
+        left = rows[0][1].left() + label
+        width = rows[0][1].right() - left - 4
+
+        def x(month: float) -> float:
+            return left + (month - m0) / span * width
+
+        # Year lines and labels
+        years = span / 12
+        step = 1 if years <= 12 else 2 if years <= 24 else 5
+        faint = QColor(text)
+        faint.setAlpha(30)
+        axis_y = rows[0][1].top() - 4
+        p.setPen(self.palette().color(QPalette.ColorRole.PlaceholderText))
+        first_year = (m0 + 11) // 12
+        for year in range(first_year, m1 // 12 + 1):
+            if year % step:
+                continue
+            xx = x(year * 12)
+            p.setPen(faint)
+            p.drawLine(QPointF(xx, axis_y + 2), QPointF(xx, rows[-1][1].bottom()))
+            p.setPen(self.palette().color(QPalette.ColorRole.PlaceholderText))
+            p.drawText(QPointF(xx + 2, axis_y), str(year))
+        # Darkness by changes per month; the All row has its own scale
+        busiest = max((c for i, _ in rows if i for c in nodes[i].months.values()), default=1)
+        busiest_all = max(nodes[0].months.values(), default=1)
+        base = QColor(COLORS["folder"])
+        for i, row in rows:
+            node = nodes[i]
+            self._row_label(p, graph, i, row, label, metrics, text)
+            if not node.first:
+                continue
+            color = QColor(COLORS["root"]) if i == 0 else base
+            band = QRectF(x(g._month(node.first)), row.top() + row.height() * 0.3,
+                          max(2.0, x(g._month(node.last) + 1) - x(g._month(node.first))), row.height() * 0.4)
+            span_color = QColor(color)
+            span_color.setAlpha(45)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(span_color)
+            p.drawRect(band)
+            scale = math.log1p(busiest_all if i == 0 else busiest)
+            for month, count in node.months.items():
+                if month < m0:
+                    continue
+                cell = QColor(color)
+                cell.setAlpha(int(110 + 145 * math.log1p(count) / scale) if scale else 255)
+                x0 = x(month)
+                p.fillRect(QRectF(x0, row.top() + 3, max(1.5, x(month + 1) - x0), row.height() - 6), cell)
+        self._paint_more(p, rows, hidden, metrics)
+
+    def _paint_types(self, p: QPainter, graph: g.Graph, text: QColor) -> None:
+        nodes = graph.nodes
+        font = QFont(self.font())
+        font.setPointSizeF(max(7.0, font.pointSizeF() * 0.85))
+        p.setFont(font)
+        metrics = QFontMetricsF(font)
+        k = 0 if OPTIONS["size_by"] == "size" else 1  # index in mix values: bytes or files
+
+        def amount(n: g.Node) -> int:
+            return n.size if k == 0 else n.count
+
+        kids = sorted(nodes[0].children, key=lambda c: -amount(nodes[c]))
+        legend_h = metrics.height() + 8
+        rows, label, hidden = self._row_layout(graph, [0] + kids, metrics, 4, legend_h)
+        self._rects = rows
+        if not rows:
+            return
+        value_w = metrics.horizontalAdvance("999.9 MB ") + 4
+        biggest = max((amount(nodes[i]) for i, _ in rows[1:]), default=0) or 1
+        dark = QColor("#111111")
+        for i, row in rows:
+            node = nodes[i]
+            self._row_label(p, graph, i, row, label, metrics, text)
+            left = row.left() + label
+            full = row.right() - left - value_w
+            length = full if i == 0 else full * amount(node) / biggest
+            total = sum(v[k] for v in node.mix.values()) or 1
+            xx = left
+            bar = QRectF(left, row.top() + 3, length, row.height() - 6)
+            for cat in TYPE_ORDER:
+                v = node.mix.get(cat)
+                if not v or not v[k]:
+                    continue
+                w = length * v[k] / total
+                seg = QRectF(xx, bar.top(), w, bar.height())
+                p.fillRect(seg, QColor(COLORS.get(cat, COLORS["other"])))
+                pct = f"{100 * v[k] / total:.0f}%"
+                if w > metrics.horizontalAdvance(pct) + 6 and bar.height() >= metrics.height() - 2:
+                    p.setPen(dark)
+                    p.drawText(seg, Qt.AlignmentFlag.AlignCenter, pct)
+                xx += w
+            p.setPen(text)
+            value = (human_size(node.size) + ("" if node.complete else "+")) if k == 0 else f"{node.count:,}"
+            p.drawText(QRectF(left + length + 4, row.top(), value_w, row.height()),
+                       Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, value)
+        self._paint_more(p, rows, hidden, metrics)
+        # Legend: the kinds that occur
+        present = [c for c in TYPE_ORDER if nodes[0].mix.get(c, [0, 0])[k]]
+        lx = rows[0][1].left() + 2
+        ly = self._area().bottom() - legend_h + 4
+        for cat in present:
+            w = metrics.horizontalAdvance(cat)
+            if lx + w + 16 > self.width():
+                break
+            p.fillRect(QRectF(lx, ly + 2, 9, 9), QColor(COLORS.get(cat, COLORS["other"])))
+            p.setPen(text)
+            p.drawText(QPointF(lx + 12, ly + metrics.ascent()), cat)
+            lx += w + 24
+
     # Mouse
 
     def wheelEvent(self, event):
-        if self.graph and self.graph.mode == "sunburst":
-            return  # the sunburst always fits the view
+        if self.graph and self.graph.mode in FIXED_MODES:
+            return  # these always fit the view
         factor = 1.15 ** (event.angleDelta().y() / 120)
         pos = event.position()
         new = max(0.05, min(self.scale * factor, 8.0))
@@ -543,7 +822,7 @@ class GraphView(QWidget):
     def mouseMoveEvent(self, event):
         pos = event.position()
         if (self._drag_from is not None and event.buttons() & Qt.MouseButton.LeftButton
-                and not (self.graph and self.graph.mode == "sunburst")):
+                and not (self.graph and self.graph.mode in FIXED_MODES)):
             delta = pos - self._drag_from
             if self._dragged or abs(delta.x()) + abs(delta.y()) > 3:
                 self._dragged = True
@@ -568,6 +847,18 @@ class GraphView(QWidget):
             return (f"{n.path}\nimported by {n.count}, imports {n.links - n.count}\n"
                     "click = show in pane, double-click = open")
         size = human_size(n.size) + ("" if n.complete else "+")
+        if self.graph and self.graph.mode in SUMMARY_MODES:
+            lines = [n.path if n.kind != "files" else n.path + " (files directly inside)",
+                     f"{n.count:,} files, {size}"]
+            if n.first:
+                lines.append("changed " + time.strftime("%Y-%m-%d", time.localtime(n.first)) + " … "
+                             + time.strftime("%Y-%m-%d", time.localtime(n.last)))
+            total = sum(b for b, _ in n.mix.values()) or 1
+            kinds = sorted(n.mix.items(), key=lambda kv: -kv[1][0])[:4]
+            if kinds:
+                lines.append(", ".join(f"{k} {100 * b / total:.0f}%" for k, (b, _) in kinds))
+            lines.append("click = open in pane")
+            return "\n".join(lines)
         what = {"files": f"{n.count} {n.ext or 'extensionless'} file(s)", "more": "more items"}.get(
             n.kind, f"{n.count:,} files")
         action = "click = show these files" if n.kind == "files" else "click = open in pane"

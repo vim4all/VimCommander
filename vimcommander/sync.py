@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout
 from .compare import Diff, compare_trees, copy_plan, delete_plan, join, mirror
 from .sizing import fit_window
 
+ACTION_COLORS = {">": QColor("#2f6fd0"), "<": QColor("#2e7d32"), "": QColor("#808080"),
+                 "x": QColor("#e53935")}
 ARROWS = {">": "→", "<": "←", "": "", "x": "✗ delete"}
 STATUS = {"left_only": "only left", "right_only": "only right", "left_newer": "left newer",
           "right_newer": "right newer", "different": "differ, same time"}
@@ -143,8 +145,7 @@ class SyncDialog(QDialog):
         self._summary()
 
     def _color(self, item: QTreeWidgetItem, d: Diff) -> None:
-        color = {">": QColor("#2f6fd0"), "<": QColor("#2e7d32"), "": QColor("#808080"),
-                 "x": QColor("#e53935")}[d.action]
+        color = ACTION_COLORS[d.action]
         for col in range(5):
             item.setForeground(col, QBrush(color))
 
