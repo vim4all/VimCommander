@@ -21,6 +21,19 @@ TEXT_LIMIT = 256 * 1024
 IMAGE_LIMIT = 64 * 1024 * 1024
 PDF_LIMIT = 256 * 1024 * 1024  # bigger PDFs inside a zip are not previewed
 PDF_PAGES = 30  # pages rendered in the preview
+HEX_LIMIT = 64 * 1024  # bytes shown in the hex view
+HEX = {"on": False}  # :hex: every file in hex, not only binary ones
+
+
+def hexdump(data: bytes, offset: int = 0) -> str:
+    """Offset, 16 bytes in hex (in two groups of 8) and as text, per line, like hexdump -C."""
+    lines = []
+    for i in range(0, len(data), 16):
+        chunk = data[i:i + 16]
+        hex_part = " ".join(f"{b:02x}" for b in chunk[:8]) + "  " + " ".join(f"{b:02x}" for b in chunk[8:])
+        text = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+        lines.append(f"{offset + i:08x}  {hex_part:<48}  |{text}|")
+    return "\n".join(lines)
 
 
 def _size(n: int) -> str:
@@ -361,6 +374,8 @@ class QuickView(QWidget):
                 self.graph.show_folder(path, self.show_hidden, DIR_SIZES)
             elif is_dir:
                 self._folder(path, in_archive)
+            elif HEX["on"]:
+                self._text_or_info(path, in_archive)
             elif path.lower().endswith(".pdf"):
                 self._pdf(path, in_archive)
             elif not self._try_image(path, in_archive):
@@ -384,11 +399,11 @@ class QuickView(QWidget):
         if is_dir:
             items = remote.REMOTE.list_dir(path)
             folders = sum(1 for i in items if i[1])
-            self._info(f"<b>Remote folder</b><br>{remote.parse(path).key}:{remote.parse(path).path}<br>"
+            self._info(f"<b>Remote folder</b><br>{remote.parse(path).url()}<br>"
                        f"{folders} folder(s), {len(items) - folders} file(s)")
             return
         ext = os.path.splitext(path)[1].lower().lstrip(".").encode()
-        if ext in {f.data() for f in QImageReader.supportedImageFormats()}:
+        if not HEX["on"] and ext in {f.data() for f in QImageReader.supportedImageFormats()}:
             image = QImage.fromData(QByteArray(remote.REMOTE.read_head(path, IMAGE_LIMIT)))
             if not image.isNull():
                 self.title.setText(f"{os.path.basename(path)}   {image.width()} × {image.height()}")
@@ -398,8 +413,8 @@ class QuickView(QWidget):
         attrs = remote.REMOTE.stat(path)
         size = attrs.st_size if attrs else 0
         data = remote.REMOTE.read_head(path, TEXT_LIMIT)
-        if b"\0" in data[:8192]:
-            self._info(f"<b>Binary file</b><br>{_size(size)}")
+        if HEX["on"] or b"\0" in data[:8192]:
+            self._hex(path, data, size, None)
             return
         self._show_text(data.decode("utf-8", errors="replace"), size, path, None)
 
@@ -452,16 +467,20 @@ class QuickView(QWidget):
             size, mtime = st.st_size, st.st_mtime
             with open(path, "rb") as f:
                 data = f.read(TEXT_LIMIT)
-        if b"\0" in data[:8192]:
-            when = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M") if mtime else ""
-            hexdump = "<br>".join(
-                f"{i:08x}&nbsp; " + " ".join(f"{b:02x}" for b in data[i:i + 16])
-                for i in range(0, min(len(data), 256), 16))
-            self._info(f"<b>Binary file</b><br>{_size(size)}<br>{when}"
-                       f"<br><br><code>{hexdump}</code>")
+        if HEX["on"] or b"\0" in data[:8192]:
+            self._hex(path, data, size, mtime)
             return
         self._show_text(data.decode("utf-8", errors="replace"), size, path,
                         None if in_archive else path)
+
+    def _hex(self, path: str, data: bytes, size: int, mtime: float | None) -> None:
+        """A hex dump of the file's start (:hex shows text files this way too)."""
+        data = data[:HEX_LIMIT]
+        when = "   " + datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M") if mtime else ""
+        shown = f"   first {_size(len(data))} in hex" if size > len(data) else "   hex"
+        self.title.setText(f"{os.path.basename(path)}   {_size(size)}{when}{shown}")
+        self.text.setPlainText(hexdump(data))
+        self.stack.setCurrentWidget(self.text)
 
     def _show_text(self, text: str, size: int, path: str, local: str | None) -> None:
         """Plain text, or a rendered note for Markdown (links only work for local files)."""

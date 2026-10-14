@@ -75,6 +75,7 @@ DEFAULTS = {
     "sort": "name",  # name | ext | size | time, "-size" = reverse
     "date_format": "%Y-%m-%d %H:%M",
     "confirm_trash": True,
+    "queue_jobs": True,  # copies, moves, syncs and zips run one after another (:jobs shows the queue)
     "restore_panes": True,
     "pane_ratio": 0.5,  # the left pane's share of the width (0.1-0.9); dragging the divider saves it
     "history_limit": 100,

@@ -143,6 +143,10 @@ class GraphView(QWidget):
         fit.clicked.connect(self.fit)
         for w in (self.size_button, self.mode_button, fit):
             bar.addWidget(w)
+        # Every mode shows the same buttons (unused ones disabled) at a fixed
+        # width, so a button never moves when the mode or its text changes.
+        self._fix_width(self.size_button, ("Size", "Files"))
+        self._fix_width(self.mode_button, [m.capitalize() for m in NEXT_MODE])
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(bar)
@@ -157,6 +161,13 @@ class GraphView(QWidget):
         b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         return b
 
+    def _fix_width(self, button: QToolButton, texts) -> None:
+        width = 0
+        for text in texts:
+            button.setText(text)
+            width = max(width, button.sizeHint().width())
+        button.setFixedWidth(width)
+
     def _sync_buttons(self) -> None:
         button = self.depth_buttons.button(OPTIONS["depth"])
         if button:
@@ -167,7 +178,7 @@ class GraphView(QWidget):
         self.size_button.setText("Size" if OPTIONS["size_by"] == "size" else "Files")
         self.size_button.setEnabled(mode in ("tree", "sunburst", "treemap", "types"))
         self.mode_button.setText(mode.capitalize())
-        self.fit_button.setVisible(mode not in FIXED_MODES)
+        self.fit_button.setEnabled(mode not in FIXED_MODES)
 
     def set_option(self, key: str, value) -> None:
         OPTIONS[key] = value

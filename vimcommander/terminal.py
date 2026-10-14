@@ -196,6 +196,10 @@ class Terminal(QDockWidget):
         """A shell on the SSH server of `url`, in that folder, on the pane's connection."""
         loc = remote.parse(url)
         self.kind, self.cwd, self.location = "posix", url, loc
+        if loc.is_ftp:
+            self._print("FTP has no shell: the terminal works in SSH folders (:ssh) and on this computer.\n",
+                        dim=True)
+            return
         try:
             conn = remote.REMOTE.connection(loc)
             channel = conn.client.get_transport().open_session()

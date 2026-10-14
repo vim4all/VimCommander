@@ -156,7 +156,10 @@ class Job(QObject):
         self.op, self.sources, self.target_dir = op, sources, target_dir or ""
         self.undo: list[tuple] = []  # ("created", path) | ("moved", src, dest) | ("trashed", path, where)
         self.cancelled = False
+        self.started = False
         self._stop = threading.Event()
+        self._running = threading.Event()  # cleared while paused
+        self._running.set()
         self._answered = threading.Event()
         self._answer = ""
         self._policy = ""  # an answer given with "apply to all"
@@ -174,12 +177,25 @@ class Job(QObject):
         return f"{verb} {len(self.sources)} item(s){where}…"
 
     def start(self) -> None:
+        self.started = True
         threading.Thread(target=self._run, daemon=True).start()
 
     def cancel(self) -> None:
         self.cancelled = True
         self._stop.set()
         self._answered.set()
+        self._running.set()
+
+    @property
+    def paused(self) -> bool:
+        return not self._running.is_set()
+
+    def pause(self) -> None:
+        """Stop between two chunks until resume() (the files stay open)."""
+        self._running.clear()
+
+    def resume(self) -> None:
+        self._running.set()
 
     def answer(self, choice: str, apply_all: bool = False) -> None:
         """Reply to `conflict`: "overwrite", "skip", "rename" or "cancel"."""
@@ -191,6 +207,9 @@ class Job(QObject):
     # Thread side
 
     def _check(self) -> None:
+        while not self._running.wait(0.2):  # paused
+            if self._stop.is_set():
+                break
         if self._stop.is_set():
             raise Cancelled
 
@@ -245,17 +264,19 @@ class Job(QObject):
 
     # Remote locations (sftp:// URLs)
 
-    def _channel(self, loc: "remote.Location"):
-        if loc.key not in self._channels:
-            self._channels[loc.key] = remote.REMOTE.connection(loc).open_sftp()
-        return self._channels[loc.key]
+    def _channel(self, loc: "remote.Location", role: str = ""):
+        key = loc.key + role
+        if key not in self._channels:
+            self._channels[key] = remote.REMOTE.connection(loc).open_sftp()
+        return self._channels[key]
 
-    def _endpoint(self, path: str) -> tuple["remote.Endpoint", str]:
-        """(file system, path in it) for a local path or an sftp:// URL."""
+    def _endpoint(self, path: str, dest: bool = False) -> tuple["remote.Endpoint", str]:
+        """(file system, path in it) for a local path or a remote URL. FTP can't read
+        and write on one connection at once, so the destination gets its own."""
         loc = remote.parse(path)
         if loc is None:
             return remote.Endpoint(None), path
-        return remote.Endpoint(self._channel(loc)), loc.path
+        return remote.Endpoint(self._channel(loc, " dest" if dest and loc.is_ftp else "")), loc.path
 
     def _tree_size(self, path: str) -> int:
         loc = remote.parse(path)
@@ -268,7 +289,7 @@ class Job(QObject):
         if archive.inside(src):
             raise OSError("copy it out of the archive first")
         src_fs, src_path = self._endpoint(src)
-        dst_fs, dst_dir = self._endpoint(self.target_dir)
+        dst_fs, dst_dir = self._endpoint(self.target_dir, dest=True)
         name = remote.basename(src.rstrip("/\\"))
         dest = dst_fs.join(dst_dir, name)
         src_loc, dst_loc = remote.parse(src), remote.parse(self.target_dir)
@@ -437,7 +458,7 @@ class Job(QObject):
         src, dest = pair
         if remote.is_remote(src) or remote.is_remote(dest):
             src_fs, src_path = self._endpoint(src)
-            dst_fs, dst_path = self._endpoint(dest)
+            dst_fs, dst_path = self._endpoint(dest, dest=True)
             existed = dst_fs.exists(dst_path)
             dst_fs.mkdirs(posixpath.dirname(dst_path) if dst_fs.sftp else os.path.dirname(dst_path))
             remote.copy_tree(src_fs, src_path, dst_fs, dst_path, lambda n: self._advance(n), self._check)

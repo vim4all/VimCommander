@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QFileIcon
                                QFormLayout, QHBoxLayout, QLineEdit, QMenu, QPushButton, QStyle,
                                QToolBar, QToolButton, QWidget)
 
+REMOTE_SCHEMES = ("sftp://", "ftp://", "ftps://")  # remote.SCHEMES (bar.py stays free of the app's modules)
+
 WINDOWS = sys.platform == "win32"
 MAC = sys.platform == "darwin"
 PROGRAM_EXTS = {e.lower() for e in os.environ.get("PATHEXT", ".EXE;.BAT;.CMD;.COM").split(";")}
@@ -43,18 +45,18 @@ class BarItem:
 
     @property
     def full_path(self) -> str:
-        return self.path if self.path.startswith("sftp://") else os.path.expanduser(self.path)
+        return self.path if self.path.startswith(REMOTE_SCHEMES) else os.path.expanduser(self.path)
 
     @property
     def is_folder(self) -> bool:
-        if self.path.startswith("sftp://"):  # a remote folder (:ssh)
+        if self.path.startswith(REMOTE_SCHEMES):  # a remote folder (:ssh, :ftp)
             return True
         return os.path.isdir(self.full_path) and not (MAC and self.path.endswith(".app"))
 
 
 def item_for_path(path: str) -> BarItem:
-    if path.startswith("sftp://"):
-        host = path[7:].split("/", 1)[0].split("@")[-1]
+    if path.startswith(REMOTE_SCHEMES):
+        host = path.split("://", 1)[1].split("/", 1)[0].split("@")[-1]
         return BarItem(f"{host}:{os.path.basename(path.rstrip('/')) or '/'}", path)
     name = os.path.basename(path.rstrip("/\\")) or path
     if not os.path.isdir(path):

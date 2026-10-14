@@ -71,6 +71,11 @@ COMMANDS = {
     "files": ("files", "find files below this folder (fuzzy)"),
     "filter": ("filter [PATTERN]", "show only matching names"),
     "find": ("find PATTERN", "search names below this folder, as a result list"),
+    "ftp": ("ftp [user@]host[:port][/path] | close", "open a folder on an FTP server (ftps://host = over TLS)"),
+    "global": ("g/PATTERN/[CMD]", "tag matching names and run CMD on them: d, d!, y, normal KEYS or a : command; "
+                                  ":g! or :v = the others"),
+    "hex": ("hex [on|off]", "quick view shows every file in hex (binary files always)"),
+    "jobs": ("jobs [pause|resume|cancel]", "the jobs panel: running and queued copies, pause, cancel"),
     "graph": ("graph [1|2|3] [size|count] [tree|sunburst|treemap|timeline|types|notes|code]", "folder graph and its options"),
     "git": ("git [changed|diff]", "git branch and counts, changed files as a list, or file vs last commit"),
     "grep": ("grep [PATTERN]", "search inside the files below this folder"),

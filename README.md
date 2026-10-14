@@ -35,6 +35,9 @@ VimCommander combines the layout of Total Commander with the keyboard of [vifm](
 - [Terminal](#terminal)
 - [Share with a phone](#share-with-a-phone)
 - [SSH folders](#ssh-folders)
+- [FTP folders](#ftp-folders)
+- [Jobs and the copy queue](#jobs-and-the-copy-queue)
+- [Global commands](#global-commands)
 - [Folder graph](#folder-graph)
 - [Zip files](#zip-files)
 - [zoxide](#zoxide)
@@ -59,7 +62,7 @@ VimCommander combines the layout of Total Commander with the keyboard of [vifm](
 - **Safe delete**: `Del` moves files to the system trash (Recycle Bin on Windows) after asking. `Shift-Del` deletes permanently.
 - **Right-click menu**: on Windows, the real Explorer menu (Open with, Send to, 7-Zip, Git, Properties…) plus a few VimCommander items. On Linux and macOS, VimCommander's own menu.
 - **Tabs** in each pane, a **drive menu** (`Alt-F1` / `Alt-F2` or the drive button), and free space in the status bar.
-- **Quick view** (`Ctrl-q`): the other pane previews text files, images, PDFs and folders as you move. Markdown notes are rendered, and their Obsidian `[[links]]` and embedded images work: click a link to go to that note.
+- **Quick view** (`Ctrl-q`): the other pane previews text files, images, PDFs and folders as you move. Markdown notes are rendered, and their Obsidian `[[links]]` and embedded images work: click a link to go to that note. Binary files show as a hex dump (`:hex` shows every file that way).
 - **Which-key and command palette**: pause after a prefix like `g`, `z`, `"` or `Ctrl-w` and the possible next keys are listed; `Ctrl-Shift-p` finds any action or command by typing part of its name.
 - **Fuzzy file finder** (`Ctrl-p`): find any file below the current folder by a few letters, fzf style, ranked with your zoxide history, with a live preview.
 - **Result lists**: `:find`, `:grep`, the file finder and the activity calendar can fill a pane with files from many folders, where tagging, copying, moving, renaming and trashing work as in any folder.
@@ -76,6 +79,9 @@ VimCommander combines the layout of Total Commander with the keyboard of [vifm](
 - **Sessions** (`:mksession` / `:session`): save and reopen both panes' tabs, result lists and the shelf by name.
 - **Thumbnail grid** (`zi`): photos as thumbnails, folders as their first picture, with the same vim keys, tags and operations.
 - **Terminal panel** (``Ctrl-` ``): a shell under the panes that follows the active pane's folder, and the pane follows its `cd`.
+- **FTP folders** (`:ftp host`): FTP and FTPS servers open in a pane too, with the same copy, move, edit and rename keys.
+- **Copy queue** (`:jobs`): big copies and moves run one after another instead of all at once; pause, resume, cancel or move a job to the front in the jobs panel.
+- **`:g/pattern/command`**: vim's global command over file names: `:g/\.log$/d` trashes the log files, `:v/\.jpg$/` tags everything that isn't a JPEG.
 - **SSH folders** (`:ssh user@host`): a folder on a server opens in a pane like a local one; copy and move across with `F5` / `F6` or drag and drop, edit remote files in your editor (saving uploads them), get a shell on the server in the terminal panel, and `:mirror` a local folder to the server.
 - **Share with a phone** (`:share`): scan a QR code to download the tagged files on your phone, or send photos from the phone into the current folder. No app or cloud needed.
 - **Activity calendar** (`gr`): a GitHub-style heatmap of when files changed, and the recent files day by day.
@@ -319,6 +325,7 @@ Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 | `:touch NAME` | create an empty file |
 | `:rename NAME` | rename the item under the cursor |
 | `:rename PATTERN` | rename every tagged item: `{name}` = name without extension, `{ext}` = extension with its dot, `{n}` = 1, 2, 3…, `{n:3}` = 001, 002… Example: `:rename holiday_{n:3}{ext}`. `cw` with tagged items starts this for you |
+| `:g/PATTERN/[CMD]`, `:g!/…`, `:v/…` | [global command](#global-commands): tag the items whose names match (`:g!` and `:v`: don't match), then run CMD on them |
 | `:s/OLD/NEW/[g][i]` | replace a regular expression in the names of the tagged items (or the item under the cursor). `g` = every match, `i` = ignore case, `&` = the match, `\1` = a group. Example: `:s/ /_/g` |
 | `:find PATTERN` | search the names in this folder and all subfolders, `*.log` or plain text to match part of a name; the pane shows the matches as a [result list](#result-lists) (`Esc` stops a long search) |
 | `:grep [TEXT]` | [search inside the files](#search-in-files) below this folder (same as `g/`) |
@@ -334,6 +341,9 @@ Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 | `:rules` | preview and apply the [folder rules](#folder-rules) |
 | `:grid [on\|off\|SIZE]` | [thumbnail grid](#thumbnail-grid) for this pane (same as `zi`), or the thumbnail size in pixels |
 | `:terminal [COMMAND]`, `:term` | show the [terminal](#terminal); with a command, run it there |
+| `:ftp [user@]host[:port][/path]`, `:ftp close` | open a folder on an [FTP server](#ftp-folders) in this pane (`ftps://host` = FTP over TLS); close all connections |
+| `:jobs [pause\|resume\|cancel]` | show / hide the [jobs panel](#jobs-and-the-copy-queue), or pause, resume or cancel every job |
+| `:hex [on\|off]` | quick view shows every file as a hex dump (binary files always do); no argument toggles |
 | `:ssh [user@]host[:path]`, `:ssh close` | open a folder on an [SSH server](#ssh-folders) in this pane (`Tab` completes hosts from `~/.ssh/config`); close all connections |
 | `:mirror` | make the other pane's folder a copy of this one: copy what is new or changed, delete what only the other side has, after a [preview](#compare-and-synchronize) |
 | `:share`, `:share stop` | [share](#share-with-a-phone) the tagged items (or the cursor's) with a phone by QR code; on `..` only receive files |
@@ -672,6 +682,31 @@ In an SSH folder:
 
 Local-only tools (`:find`, `:grep`, `Ctrl-p`, the graph, `gr`, `:dupes`, `:reclaim`, `:share`, the shelf) say so in the status bar. Remote folders don't refresh by themselves: `Ctrl-l` reloads, and after your own file operations they reload anyway. `u` undoes what happened on this computer (a download), not changes on the server.
 
+## FTP folders
+
+`:ftp host` opens an FTP server's folder in the active pane, logged in as `anonymous`; `:ftp user@host/pub/files` logs in as `user`, in that folder, and `:ftp user@host:2121` uses another port. For FTP over TLS (explicit FTPS), write the URL: `:ftp ftps://user@host/path`. The password is taken from `~/.netrc` (`machine host login user password …`) when it's there, else you are asked; it is kept only while the app runs. Paths are shown as `ftp://user@host/path`, and the drive button says `ftp host`.
+
+Everything in the [SSH folders](#ssh-folders) table works the same, except the shell: FTP has none, so the terminal stays on this computer. Each copy or move opens its own login next to the one used for listing, so the server must allow two connections per user. Modification times are kept when the server understands `MFMT`. Listing uses `MLSD` and falls back to the classic `LIST` (Unix and Windows / IIS styles). `:ftp close` (or `:ssh close`) logs out of every server.
+
+## Jobs and the copy queue
+
+Copies, moves, `:synchronize` / `:mirror` and `:zip` run one at a time: one started while another is running waits in a queue, so two big copies to the same disk don't slow each other down. The first job shows the usual progress window, with *Pause* and *Background* (hide the window, keep going in the panel). Queued jobs show in the **jobs panel**, which opens by itself when something is queued and closes when the queue is empty; `:jobs` shows or hides it any time.
+
+Each row in the panel shows the job's progress, with *Pause* / *Resume*, *Cancel* (a waiting job is just removed) and *Next* (run this waiting job next). A paused waiting job is skipped until you resume it. `:jobs pause`, `:jobs resume` and `:jobs cancel` act on all jobs at once. Pausing stops between two chunks of a file; nothing is lost. Trash, delete and undo don't wait in the queue. To run every job at once as before, set `"queue_jobs": false` in the config.
+
+## Global commands
+
+Vim's `:g` works on the file names of the current pane: `:g/PATTERN/CMD` tags every item whose name matches PATTERN, then runs CMD on the tagged items. PATTERN works like `/` search: a regular expression, or a shell pattern if it only has `*` and `?`, with smartcase. `:g!/PATTERN/CMD` and `:v/PATTERN/CMD` take the items that **don't** match. Any punctuation can be the delimiter (`:g#a/b#d`), and an empty pattern reuses the last search.
+
+| CMD | Does |
+|---|---|
+| *(nothing)* | only tag the items: `:g/\.jpe?g$/` |
+| `d` | move them to the trash (asks first): `:g/\.log$/d` |
+| `d!` | delete them permanently (asks first) |
+| `y`, `y x` | yank them, into register `x` if given; then `p` in the other folder |
+| `normal KEYS` | press KEYS, e.g. `:g/^IMG_/normal <F5>` copies them to the other pane |
+| any `:` command | run it on the tagged items: `:g/ /s/ /_/g`, `:g/\.md$/zip notes`, `:v/\.py$/shelf add` |
+
 ## Folder graph
 
 Quick view (`Ctrl-q`) on a folder, or on `..` for the current folder, shows it as a graph in the style of Obsidian's graph view. The mode button (*Tree*, *Sunburst*, *Treemap*, *Timeline*, *Types*, *Notes*, *Code*), or `:graph MODE`, switches between seven views. `gG` or `:graph` opens the same graph in a big window of its own.
@@ -774,6 +809,7 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
   "sort": "name",
   "date_format": "%Y-%m-%d %H:%M",
   "confirm_trash": true,
+  "queue_jobs": true,
   "restore_panes": true,
   "history_limit": 100,
   "programs": {
@@ -810,6 +846,7 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
 | `sort` | `name`, `ext`, `size` or `time`; prefix `-` to reverse, e.g. `"-time"` |
 | `date_format` | format of the *Modified* column, in Python [`strftime`](https://docs.python.org/3/library/datetime.html#format-codes) codes |
 | `confirm_trash` | ask before moving to trash |
+| `queue_jobs` | run copies, moves, syncs and zips one after another ([copy queue](#jobs-and-the-copy-queue)); `false` = all at once |
 | `restore_panes` | reopen the last folders and tabs; `false` = current folder and home |
 | `pane_ratio` | the left pane's share of the width, `0.1`–`0.9` (default `0.5`). Dragging the divider between the panes saves it, and it is kept when the window is resized |
 | `history_limit` | how many folders `Ctrl-o` remembers per pane |
@@ -1021,7 +1058,6 @@ Ideas for later, roughly in order. None of these exist yet.
 **File manager**
 
 - Changing zip files (adding, deleting and renaming inside them), and other archive formats (tar, 7z, rar).
-- Remote locations (SFTP, FTP) as folders.
 - Zoom keys (`Ctrl-+`, `Ctrl--`, `Ctrl-0`) to change the font size from the keyboard.
 
 ## Limitations
@@ -1033,7 +1069,7 @@ Things that work differently from what you might expect (planned features are in
 - Undo history and named registers last only while the app runs; macros and command history are saved. So do result lists: a tab that showed one reopens its folder.
 - Git status needs the `git` program; very big repositories may color a moment after the list appears.
 - The terminal panel is not a full terminal emulator: full-screen programs (vim, htop) need a real terminal (`S`).
-- SSH folders don't refresh by themselves (`Ctrl-l`), and changes on a server can't be undone. Servers that offer only SCP, not SFTP, aren't supported.
+- SSH folders don't refresh by themselves (`Ctrl-l`), and changes on a server can't be undone. Servers that offer only SCP, not SFTP, aren't supported. FTP folders have no shell, and copying between two folders on the same FTP server goes through this computer.
 - `:share` works on the local network only (phone and computer on the same Wi-Fi), not over the internet.
 - `:grep` reads files as UTF-8; text in other encodings (UTF-16, legacy code pages) may not match.
 - The code graph finds imports with patterns, not a real parser, so imports built at run time, path aliases (`@/x` in TypeScript) and Python's `sys.path` tricks aren't followed.

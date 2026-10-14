@@ -3,7 +3,7 @@
 import os
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QLabel, QLineEdit,
                                QListWidget, QMessageBox, QProgressBar, QVBoxLayout, QWidget)
 
@@ -15,8 +15,10 @@ from .sizing import fit_window
 
 
 class ProgressDialog(QDialog):
-    """Shows a running job's progress, with a Cancel button. Appears only if
-    the job takes longer than a moment."""
+    """Shows a running job's progress, with Pause, Background and Cancel buttons.
+    Appears only if the job takes longer than a moment."""
+
+    background = Signal()  # sent to the jobs panel
 
     def __init__(self, job: Job, parent: QWidget):
         super().__init__(parent)
@@ -31,6 +33,11 @@ class ProgressDialog(QDialog):
         self.amount = QLabel()
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         buttons.rejected.connect(self.reject)
+        self.pause_button = buttons.addButton("Pause", QDialogButtonBox.ButtonRole.ActionRole)
+        self.pause_button.clicked.connect(self.toggle_pause)
+        hide = buttons.addButton("Background", QDialogButtonBox.ButtonRole.ActionRole)
+        hide.setToolTip("Hide this window; the job goes on in the jobs panel (:jobs)")
+        hide.clicked.connect(self.to_background)
         layout = QVBoxLayout(self)
         for w in (self.label, self.current, self.bar, self.amount, buttons):
             layout.addWidget(w)
@@ -41,6 +48,16 @@ class ProgressDialog(QDialog):
     def _show_if_running(self) -> None:
         if self.running:
             self.show()
+
+    def toggle_pause(self) -> None:
+        self.job.resume() if self.job.paused else self.job.pause()
+        self.pause_button.setText("Resume" if self.job.paused else "Pause")
+        self.label.setText(("Paused: " if self.job.paused else "") + self.job.description)
+
+    def to_background(self) -> None:
+        self.running = False  # don't show it again
+        self.hide()
+        self.background.emit()
 
     def on_progress(self, done: int, total: int, items: int, items_total: int, name: str) -> None:
         self.current.setText(name)

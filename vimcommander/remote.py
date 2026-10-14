@@ -1,7 +1,9 @@
-"""Remote folders over SSH (SFTP), for :ssh. Pure Python (paramiko), no Qt.
+"""Remote folders over SSH (SFTP), for :ssh, and FTP / FTPS, for :ftp. Pure
+Python (paramiko, ftplib), no Qt.
 
 A remote location is written as a URL: sftp://[user@]host[:port]/path, where
-host can be an alias from ~/.ssh/config. Connections are made on first use
+host can be an alias from ~/.ssh/config, or ftp:// / ftps:// (ftpfs.py makes
+an FTP connection look like an SFTP channel, so the rest works the same). Connections are made on first use
 and shared: listing uses one SFTP channel (with a lock), each file job and the
 remote terminal open their own channels on the same connection.
 
@@ -18,7 +20,8 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 
-URL = re.compile(r"^sftp://(?:([^@/]+)@)?([^/:]+)(?::(\d+))?(/.*)?$")
+URL = re.compile(r"^(sftp|ftps?)://(?:([^@/]+)@)?([^/:]+)(?::(\d+))?(/.*)?$")
+SCHEMES = ("sftp://", "ftp://", "ftps://")
 CHUNK = 256 * 1024
 
 
@@ -28,45 +31,55 @@ class Location:
     host: str  # as typed: an alias from ~/.ssh/config or a host name
     port: int  # 0 = from the ssh config, else 22
     path: str  # absolute remote path, with /
+    scheme: str = "sftp"  # or "ftp" / "ftps"
+
+    @property
+    def address(self) -> str:
+        """[user@]host[:port]"""
+        return (f"{self.user}@" if self.user else "") + self.host + (f":{self.port}" if self.port else "")
 
     @property
     def key(self) -> str:
-        """Identifies the connection: [user@]host[:port]."""
-        return (f"{self.user}@" if self.user else "") + self.host + (f":{self.port}" if self.port else "")
+        """Identifies the connection: [user@]host[:port], with ftp:// / ftps:// in front for FTP."""
+        return self.address if self.scheme == "sftp" else f"{self.scheme}://{self.address}"
+
+    @property
+    def is_ftp(self) -> bool:
+        return self.scheme != "sftp"
 
     def url(self, path: str | None = None) -> str:
-        return f"sftp://{self.key}{path if path is not None else self.path}"
+        return f"{self.scheme}://{self.address}{path if path is not None else self.path}"
 
 
 def parse(path: str) -> Location | None:
-    """The Location of an sftp:// URL, or None for a local path."""
-    if not isinstance(path, str) or not path.startswith("sftp://"):
+    """The Location of an sftp:// (or ftp:// / ftps://) URL, or None for a local path."""
+    if not is_remote(path):
         return None
     m = URL.match(path.replace("\\", "/"))
     if not m:
         return None
-    user, host, port, rest = m.groups()
+    scheme, user, host, port, rest = m.groups()
     rest = posixpath.normpath(rest or "/")
     if rest.startswith("//"):
         rest = rest[1:]
-    return Location(user or "", host, int(port or 0), rest)
+    return Location(user or "", host, int(port or 0), rest, scheme)
 
 
 def is_remote(path: str) -> bool:
-    return isinstance(path, str) and path.startswith("sftp://")
+    return isinstance(path, str) and path.startswith(SCHEMES)
 
 
-def from_spec(spec: str) -> str:
-    """'user@host:/path', 'host:path', 'host' or an sftp:// URL -> URL (path may be relative: '~')."""
-    if spec.startswith("sftp://"):
+def from_spec(spec: str, scheme: str = "sftp") -> str:
+    """'user@host:/path', 'host:path', 'host' or a URL -> URL (path may be relative: '~')."""
+    if is_remote(spec):
         return spec
     target, sep, path = spec.partition(":")
     if sep and path.isdigit():  # host:2222
-        return f"sftp://{target}:{path}/~"
+        return f"{scheme}://{target}:{path}/~"
     path = path or "~"
     if not path.startswith("/"):
         path = "/~/" + path if path != "~" else "/~"
-    return f"sftp://{target}{path}"
+    return f"{scheme}://{target}{path}"
 
 
 def join(base: str, name: str) -> str:
@@ -150,6 +163,54 @@ class Connection:
             pass
 
 
+class FtpConnection:
+    """One FTP login, shaped like Connection: `sftp` is an ftpfs.FtpClient."""
+
+    client = None  # no SSH: no remote shell
+
+    def __init__(self, host: str, port: int, user: str, password: str, tls: bool):
+        from . import ftpfs
+        self._args = (host, port, user, password, tls)
+        self.sftp = ftpfs.FtpClient(*self._args)
+        self.label = f"{user}@{host}"
+        self.lock = threading.Lock()
+        self.home = self.sftp.normalize(".")
+
+    @property
+    def alive(self) -> bool:
+        import time
+        if time.monotonic() - self.sftp.last_use < 30:
+            return True
+        with self.lock:  # servers drop idle logins: check before reusing an old one
+            try:
+                self.sftp.noop()
+                return True
+            except OSError:
+                return False
+
+    def open_sftp(self):
+        """A second login, for a job running in another thread."""
+        from . import ftpfs
+        return ftpfs.FtpClient(*self._args)
+
+    def close(self) -> None:
+        self.sftp.close()
+
+
+def ftp_login(host: str, user: str) -> tuple[str, str | None]:
+    """(user, password) for an FTP host: anonymous, from ~/.netrc, or None = ask."""
+    if not user or user in ("anonymous", "ftp"):
+        return "anonymous", "anonymous@"
+    try:
+        import netrc
+        auth = netrc.netrc().authenticators(host)
+        if auth and (auth[0] in ("", user)) and auth[2]:
+            return user, auth[2]
+    except (OSError, netrc.NetrcParseError):
+        pass
+    return user, None
+
+
 class Remote:
     """All open connections, by Location.key."""
 
@@ -170,7 +231,9 @@ class Remote:
             self.connections[loc.key] = conn
             return conn
 
-    def _connect(self, loc: Location) -> Connection:
+    def _connect(self, loc: Location) -> "Connection | FtpConnection":
+        if loc.is_ftp:
+            return self._connect_ftp(loc)
         import paramiko
         cfg = {}
         config_path = os.path.expanduser("~/.ssh/config")
@@ -221,6 +284,18 @@ class Remote:
         except (paramiko.SSHException, OSError, EOFError) as e:
             raise OSError(f"can't connect to {hostname}: {e}") from None
         return Connection(client, f"{user}@{hostname}")
+
+    def _connect_ftp(self, loc: Location) -> FtpConnection:
+        user, password = ftp_login(loc.host, loc.user)
+        asked = password is None
+        if asked:
+            password = Remote.ask_password(f"FTP password for {user}@{loc.host}")
+            if password is None:
+                raise OSError("cancelled")
+        try:
+            return FtpConnection(loc.host, loc.port, user, password, loc.scheme == "ftps")
+        except PermissionError as e:
+            raise OSError(f"wrong user or password ({e.strerror})" if asked else str(e)) from None
 
     def close_all(self) -> None:
         with self._lock:

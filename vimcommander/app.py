@@ -14,13 +14,13 @@ from datetime import datetime
 
 from PySide6.QtCore import QEvent, QFileSystemWatcher, QObject, QPoint, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase, QKeyEvent
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout, QInputDialog, QLabel,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout, QInputDialog, QLabel, QSizePolicy,
                                QLineEdit, QMainWindow, QMenu, QMessageBox, QSplitter, QVBoxLayout,
                                QWidget)
 
 import tempfile
 
-from . import archive, cleanup, clipboard, config, gitstatus, graphview, remote, rules
+from . import archive, cleanup, clipboard, config, gitstatus, graphview, preview, remote, rules
 from .actions import ACTIONS, ALIASES, COMMANDS, needs_argument
 from .activity import ActivityDialog
 from .bulkrename import BulkRenameDialog
@@ -36,6 +36,7 @@ from .whichkey import WhichKey, pretty
 from .bar import BarItem, LaunchBar, default_items, default_terminal, item_for_path, run_command
 from . import theme, zoxide
 from .dialogs import ProgressDialog, ZoxideDialog, ask_conflict
+from .jobs import QUEUED_OPS, JobsPanel
 from .fileops import Job, SizeJob, unique_dest
 from .pane import DIR_SIZES, SORT_KEYS, Entry, Pane, Results, child_name, human_size, set_colors
 from .results import Search, find_paths
@@ -131,6 +132,29 @@ def pattern_regex(text: str, ignorecase: bool = True, smartcase: bool = True) ->
         return re.compile(re.escape(text), flags)
 
 
+# :g/pattern/cmd, :g!/pattern/cmd and :v/pattern/cmd (any non-word character as the delimiter)
+GLOBAL = re.compile(r"^(g(?:lobal)?!?|v(?:global)?)([^\w\s\\\"|])(.*)$")
+# What :g runs for vim's line commands: d = trash, d! = delete, y = yank (into a register with y x)
+GLOBAL_ACTIONS = {"d": "trash", "delete": "trash", "d!": "delete", "delete!": "delete",
+                  "y": "yank", "yank": "yank"}
+
+
+def split_global(rest: str, delimiter: str) -> tuple[str, str]:
+    """'pat/cmd' -> ('pat', 'cmd'); a backslash escapes the delimiter, the closing one may be left out."""
+    pattern, i = [], 0
+    while i < len(rest):
+        c = rest[i]
+        if c == "\\" and i + 1 < len(rest) and rest[i + 1] == delimiter:
+            pattern.append(delimiter)
+            i += 2
+            continue
+        if c == delimiter:
+            return "".join(pattern), rest[i + 1:].strip()
+        pattern.append(c)
+        i += 1
+    return "".join(pattern), ""
+
+
 # Commands whose argument is completed as a path by Tab on the ':' line.
 PATH_COMMANDS = {"cd", "mkdir", "touch", "rename", "tabnew", "find", "bar"}
 # Commands that read the folder with local file functions: not for sftp:// folders.
@@ -190,11 +214,16 @@ HELP = """\
 <b>Share</b>: :share = QR code for a phone to download the tagged files and send files back; :share stop
 <b>SSH</b>: :ssh user@host[:path] = a server's folder in this pane (F5 / F6 copy across, F4 edits and uploads
 &nbsp;&nbsp;on save, Ctrl-` = a shell there), :mirror = make the other pane a copy of this one, :ssh close
+<b>FTP</b>: :ftp [user@]host[/path] (no user = anonymous, ftps://host = TLS), same keys as SSH, no shell
+<b>Jobs</b>: copies and moves wait in a queue; :jobs = the panel (pause, cancel, run next), :jobs pause / resume
 &nbsp;&nbsp;:set nu / rnu / ic / scs / hls / ws / hidden (no… to turn off, …! to toggle, …? to show)
 &nbsp;&nbsp;command line: Up/Down history, Ctrl-w word, Ctrl-u line, Ctrl-r Ctrl-f file name, Ctrl-r Ctrl-p path
 <b>Drag and drop</b>: drop = copy, Shift+drop = move. Works with other apps too.
 <b>Commands</b>: :q &nbsp; :cd PATH &nbsp; :mkdir NAME &nbsp; :touch NAME &nbsp; :rename NAME &nbsp; (Tab completes)
 &nbsp;&nbsp;:rename img_{n:3}{ext} renames all tagged items ({name} {ext} {n}) &nbsp; :s/old/new/gi
+&nbsp;&nbsp;:g/PATTERN/CMD = tag matching names, then CMD on them (d = trash, d! = delete, y = yank, normal KEYS,
+&nbsp;&nbsp;any : command); :g!/… or :v/… = the names that don't match; :g/PATTERN/ = only tag them
+&nbsp;&nbsp;:hex = quick view in hex for every file (binary files always show in hex)
 &nbsp;&nbsp;:find PATTERN (search below this folder) &nbsp; :drives &nbsp; :undo
 &nbsp;&nbsp;:z KEYWORDS = jump with zoxide (Tab completes) &nbsp; :zi or gz = pick from zoxide's list
 &nbsp;&nbsp;:sort name|ext|size|time (-size = reverse) &nbsp; :sync (other pane goes here)
@@ -369,7 +398,9 @@ class MainWindow(QMainWindow):
         self.visual_anchor = 0
         self.last_search = ""
         self.search_origin = 0
-        self.jobs: list[Job] = []
+        self.jobs: list[Job] = []  # running and queued
+        self.job_queue: list[Job] = []  # waiting for the running transfer to finish
+        self.job_dialogs: dict[int, ProgressDialog] = {}  # id(job) -> its dialog
         self.marks: dict[str, list[str]] = {}
         self.last_visual: tuple[int, int] | None = None
         self.last_find: tuple[str, int] | None = None
@@ -423,6 +454,13 @@ class MainWindow(QMainWindow):
         self.shelf.command.connect(lambda cmd: self.ex_shelf(cmd))
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.shelf)
         self.shelf.setVisible(bool(self.settings.get("shelf_visible", False)))
+
+        self.jobs_panel = JobsPanel(self)
+        self.jobs_panel.cancel.connect(self.cancel_job)
+        self.jobs_panel.move_first.connect(self.job_first)
+        self.jobs_panel.paused.connect(lambda job: self._start_queued())
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.jobs_panel)
+        self.jobs_panel.hide()
 
         self.terminal = Terminal(self)
         self.terminal.cwd_changed.connect(self.on_terminal_cd)
@@ -485,6 +523,9 @@ class MainWindow(QMainWindow):
         self.cmdline.insert_request.connect(self.cmdline_insert)
         self.message_label = QLabel()
         self.info_label = QLabel()
+        # A long message must not widen the window: it is cut off (full text in the tooltip).
+        self.message_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.message_label.setMinimumWidth(1)
 
         bar = QHBoxLayout()
         bar.setContentsMargins(6, 2, 6, 2)
@@ -1044,19 +1085,94 @@ class MainWindow(QMainWindow):
         self.start_job("move" if move else "copy", paths, target)
 
     def start_job(self, op: str, paths: list, target: str | None = None) -> Job:
+        """Run a file operation in the background. A copy, move, sync or zip started
+        while another one runs waits in the queue (unless "queue_jobs" is off)."""
         job = Job(op, paths, target)
-        dialog = ProgressDialog(job, self)
         job.conflict.connect(lambda src, dest, job=job: job.answer(*ask_conflict(self, src, dest)))
-        job.finished.connect(
-            lambda msg, errors, job=job, dialog=dialog: self.on_job_done(job, dialog, msg, errors))
+        job.finished.connect(lambda msg, errors, job=job: self.on_job_done(job, msg, errors))
         self.jobs.append(job)
-        self.show_message(job.description)
-        job.start()
+        self.jobs_panel.add(job)
+        if op in QUEUED_OPS and self.settings.get("queue_jobs", True) and self._transfer_running():
+            self.job_queue.append(job)
+            self.jobs_panel.show_auto()
+            self.show_message(f"Queued: {job.description}   (:jobs shows the queue)")
+            return job
+        self._run_job(job, dialog=True)
         return job
 
-    def on_job_done(self, job: Job, dialog: ProgressDialog, message: str, errors: list[str]) -> None:
+    def _transfer_running(self) -> bool:
+        return any(j.started and j.op in QUEUED_OPS for j in self.jobs)
+
+    def _run_job(self, job: Job, dialog: bool) -> None:
+        if dialog:  # jobs started from the queue show in the panel only
+            box = self.job_dialogs[id(job)] = ProgressDialog(job, self)
+            box.background.connect(self.jobs_panel.show)
+        self.show_message(job.description)
+        job.start()
+        self.jobs_panel.refresh(job)
+
+    def _start_queued(self) -> None:
+        """Start the next waiting job (skipping paused ones) when no transfer runs."""
+        if self._transfer_running():
+            return
+        for job in self.job_queue:
+            if not job.paused:
+                self.job_queue.remove(job)
+                self._run_job(job, dialog=False)
+                return
+
+    def cancel_job(self, job: Job) -> None:
+        if job in self.job_queue:  # never started: just drop it
+            self.job_queue.remove(job)
+            self.jobs.remove(job)
+            self.jobs_panel.remove(job)
+            self.show_message(f"Removed from the queue: {job.description}")
+            return
+        job.cancel()
+
+    def job_first(self, job: Job) -> None:
+        if job in self.job_queue:
+            self.job_queue.remove(job)
+            self.job_queue.insert(0, job)
+            self.jobs_panel.reorder([j for j in self.jobs if j.started] + self.job_queue)
+
+    def ex_hex(self, arg):
+        """:hex shows every file in quick view as hex (binary files always are); again = off."""
+        preview.HEX["on"] = {"on": True, "off": False}.get(arg.strip(), not preview.HEX["on"])
+        for pane in self.panes:
+            for view in (pane.preview, pane.column_preview):
+                view.current = None  # show it again
+        self.update_quickview()
+        if self.pane.columns:
+            self.pane.update_columns()
+        self.show_message("Hex view " + ("on: every file in hex" if preview.HEX["on"] else
+                                         "off (binary files still show in hex)"))
+
+    def ex_jobs(self, arg):
+        """:jobs shows / hides the jobs panel; :jobs pause / resume / cancel act on all jobs."""
+        arg = arg.strip()
+        if arg in ("pause", "resume"):
+            for job in self.jobs:
+                job.pause() if arg == "pause" else job.resume()
+                self.jobs_panel.refresh(job)
+            if arg == "resume":
+                self._start_queued()
+            self.show_message(f"{len(self.jobs)} job(s) {'paused' if arg == 'pause' else 'resumed'}")
+        elif arg == "cancel":
+            for job in list(self.jobs):
+                self.cancel_job(job)
+        elif arg:
+            self.show_message("Usage: :jobs [pause|resume|cancel]")
+        else:
+            self.jobs_panel.auto_shown = False
+            self.jobs_panel.setVisible(not self.jobs_panel.isVisible())
+
+    def on_job_done(self, job: Job, message: str, errors: list[str]) -> None:
         self.jobs.remove(job)
-        dialog.finish()
+        self.jobs_panel.remove(job)
+        if dialog := self.job_dialogs.pop(id(job), None):
+            dialog.finish()
+        self._start_queued()
         if job.op in ("undo", "redo"):
             other = self.redo_stack if job.op == "undo" else self.undo_stack
             if job.undo:
@@ -1458,7 +1574,7 @@ class MainWindow(QMainWindow):
             for pane in self.panes:
                 if pane.remote:
                     pane.cd(os.path.expanduser("~"))
-            self.show_message("SSH connections closed")
+            self.show_message("SSH and FTP connections closed")
             return
         if not arg:
             hosts = remote.ssh_hosts()
@@ -1478,6 +1594,34 @@ class MainWindow(QMainWindow):
         if ok:
             self.show_message(f"Connected to {self.pane.remote.host}. F5 / F6 copy and move across, "
                               "F4 edits (saving uploads), Ctrl-` = a shell there, :mirror = sync")
+
+    def ex_ftp(self, arg):
+        """:ftp [user@]host[:port][/path] opens a folder on an FTP server (ftps://… for FTPS);
+        :ftp close disconnects."""
+        arg = arg.strip()
+        if arg == "close":
+            self.ex_ssh("close")
+            return
+        if not arg:
+            self.show_message("Usage: :ftp [user@]host[:port][/path]   (no user = anonymous; "
+                              "ftps://host for FTP over TLS; passwords from ~/.netrc or asked)")
+            return
+        if not remote.is_remote(arg):
+            target, _, path = arg.partition("/")
+            arg = f"ftp://{target}/{path}" if path else f"ftp://{target}/~"
+        loc = remote.parse(arg)
+        if loc is None or not loc.is_ftp:
+            self.show_message(f"Not an FTP address: {arg}")
+            return
+        self.remember_jump()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            ok = self.pane.cd(arg)
+        finally:
+            QApplication.restoreOverrideCursor()
+        if ok:
+            self.show_message(f"Connected to {loc.host} (FTP). F5 / F6 copy and move across, "
+                              "F4 edits (saving uploads)")
 
     def on_remote_edit_saved(self, local: str) -> None:
         """An edited copy of a remote file was saved: upload it (once the editor is done writing)."""
@@ -2791,6 +2935,9 @@ class MainWindow(QMainWindow):
         if re.match(r"s[^\w\s]", line):
             self.substitute(line)
             return
+        if m := GLOBAL.match(line):
+            self.global_command(m.group(1), m.group(2), m.group(3), depth)
+            return
         cmd, _, arg = line.partition(" ")
         arg = arg.strip()
         user = self.settings.get("commands") or {}
@@ -2805,6 +2952,41 @@ class MainWindow(QMainWindow):
             handler(arg)
         except OSError as e:
             self.show_message(f"{cmd}: {e.strerror or e}")
+
+    def global_command(self, name: str, delimiter: str, rest: str, depth: int = 0) -> None:
+        """:g/pattern/cmd tags the items whose names match (:g! and :v the others), then
+        runs cmd on them: a : command, d (trash), d! (delete), y (yank) or normal KEYS.
+        Without cmd it only tags them; an empty pattern is the last search."""
+        invert = name.startswith("v") or name.endswith("!")
+        text, cmd = split_global(rest, delimiter)
+        text = text or self.last_search
+        if not text:
+            self.show_message("No pattern: :g/pattern/command")
+            return
+        regex = self.search_regex(text)
+        pane = self.pane
+        rows = [row for row, e in enumerate(pane.model.entries)
+                if not e.is_parent and bool(regex.search(e.shown or e.name)) != invert]
+        if not rows:
+            self.show_message(f"No {'other ' if invert else ''}items match: {text}")
+            return
+        self.leave_visual()
+        pane.tag_rows(rows)
+        if not cmd:
+            self.show_message(f"Tagged {len(rows)} item(s)")
+            return
+        word, _, arg = cmd.partition(" ")
+        if cmd in GLOBAL_ACTIONS or (word in ("y", "yank") and len(arg.strip()) == 1):
+            register = arg.strip() if word in ("y", "yank") and arg.strip() else None
+            self.run_action(GLOBAL_ACTIONS[word if register else cmd], None, None, register)
+        elif word in ("normal", "norm"):
+            self.engine.reset()
+            for key in re.findall(r"<[^<>\s]+>|.", arg):
+                if action := self.engine.feed(key):
+                    self.run_action(action.name, action.count, action.arg, action.register)
+            self.engine.reset()
+        elif depth < 10:
+            self.execute(cmd, depth + 1)
 
     def shell_command(self, line: str) -> None:
         """Run a shell command line in this folder, with %d %o %f %s filled in (%% = %)."""
@@ -2822,7 +3004,7 @@ class MainWindow(QMainWindow):
     def _arg_path(self, arg: str) -> str:
         if len(arg) > 1 and arg[0] == arg[-1] and arg[0] in "'\"":
             arg = shlex.split(arg)[0]
-        if arg.startswith("sftp://"):
+        if remote.is_remote(arg):
             return arg
         loc = self.pane.remote
         if loc and not re.match(r"^[A-Za-z]:[\\/]", arg):  # in an SSH folder: paths there (C:\x stays local)
@@ -3360,6 +3542,7 @@ class MainWindow(QMainWindow):
 
     def show_message(self, text: str) -> None:
         self.message_label.setText(text)
+        self.message_label.setToolTip(text if len(text) > 60 else "")
 
     def update_status(self) -> None:
         mode = f"-- {self.engine.mode} --" if self.engine.mode == VISUAL else ""

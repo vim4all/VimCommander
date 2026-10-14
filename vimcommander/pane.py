@@ -1056,7 +1056,8 @@ class Pane(QWidget):
 
     def _shown_path(self) -> str:
         if self.remote:
-            return f"{self.remote.key}:{self.remote.path}"
+            return (self.remote.url() if self.remote.is_ftp else
+                    f"{self.remote.key}:{self.remote.path}")
         home = os.path.expanduser("~")
         if child_name(home, self.path) is not None or self.path == home:
             return "~" + self.path[len(home):]
@@ -1064,7 +1065,7 @@ class Pane(QWidget):
 
     def update_drive(self) -> None:
         if self.remote:
-            self.drive_button.setText("ssh " + self.remote.host)
+            self.drive_button.setText(("ssh " if not self.remote.is_ftp else "ftp ") + self.remote.host)
             self.free = ""
             return
         info = QStorageInfo(self.archive[0] if self.archive else self.path)
@@ -1400,6 +1401,15 @@ class Pane(QWidget):
                                                   flag | QItemSelectionModel.SelectionFlag.Rows)
                 count += 1
         return count
+
+    def tag_rows(self, rows: list[int]) -> int:
+        """Tag exactly these rows."""
+        self.clear_tags()
+        sel = self.view.selectionModel()
+        for row in rows:
+            sel.select(self.model.index(row, 0), QItemSelectionModel.SelectionFlag.Select
+                       | QItemSelectionModel.SelectionFlag.Rows)
+        return len(rows)
 
     def tag_names(self, names: set[str]) -> int:
         """Tag exactly the items with these names (case as the file system sees it)."""
