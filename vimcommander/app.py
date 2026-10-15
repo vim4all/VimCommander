@@ -9,12 +9,13 @@ import stat
 import subprocess
 import sys
 import traceback
+import zipfile
 from collections import deque
 from datetime import datetime
 
 from PySide6.QtCore import QEvent, QFileSystemWatcher, QObject, QPoint, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase, QKeyEvent
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout, QInputDialog, QLabel, QSizePolicy,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDialog, QHBoxLayout, QInputDialog, QLabel, QSizePolicy,
                                QLineEdit, QMainWindow, QMenu, QMessageBox, QSplitter, QVBoxLayout,
                                QWidget)
 
@@ -28,18 +29,17 @@ from .compare import compare_trees
 from .diffview import DiffDialog
 from .grepdialog import GrepDialog
 from .palette import FileFinder, PaletteDialog
-from .sharedialog import ShareDialog
 from .shelf import Shelf
 from .terminal import Terminal
 from .sync import SyncDialog
 from .whichkey import WhichKey, pretty
 from .bar import BarItem, LaunchBar, default_items, default_terminal, item_for_path, run_command
 from . import theme, zoxide
-from .dialogs import ProgressDialog, ZoxideDialog, ask_conflict
+from .dialogs import PackDialog, ProgressDialog, UnpackDialog, ZoxideDialog, ask_conflict
 from .jobs import QUEUED_OPS, JobsPanel
-from .fileops import Job, SizeJob, unique_dest
+from .fileops import HASHES, Job, SizeJob, unique_dest
 from .pane import DIR_SIZES, SORT_KEYS, Entry, Pane, Results, child_name, human_size, set_colors
-from .results import Search, find_paths
+from .results import Search, branch_paths, changed_files, find_paths
 from .rename import check_names, format_name, parse_substitute
 from .vim import NORMAL, VISUAL, Action, KeyEngine, user_bindings
 from .rulesdialog import RulesDialog, group_steps
@@ -92,6 +92,7 @@ def monospace_font(options: dict) -> tuple[QFont, str]:
 
 
 HISTORY_SIZE = 100
+RECENT_SIZE = 200  # files kept in :recent
 
 # Actions that '.' repeats (vim's "changes"); ':' commands are listed in REPEATABLE_EX.
 REPEATABLE = {"paste", "cut", "cut_motion", "trash", "delete", "copy_other", "move_other"}
@@ -177,6 +178,8 @@ HELP = """\
 <b>Files</b>: yy = copy, dd = cut, p = paste here (3yy yanks 3 items)
 &nbsp;&nbsp;yf / yd / yn = copy file path / folder path / file name to the clipboard
 &nbsp;&nbsp;F5 = copy to other pane, F6 = move to other pane, Del/F8 = move to trash
+&nbsp;&nbsp;Alt-F5 = pack into a zip in the other pane, Alt-F9 = unpack zips into the other pane
+&nbsp;&nbsp;gb = branch view (all files below this folder), :hash [sha256|md5|…] = checksum file, :hash check = verify it
 &nbsp;&nbsp;Shift-Del = delete permanently, u = undo the last copy / move / rename / trash
 &nbsp;&nbsp;cw/F2 = rename, cW = rename without extension, F7 = new folder, za = show/hide hidden files
 &nbsp;&nbsp;F3 = view, F4 = edit (programs set in the config file), S = terminal here
@@ -200,11 +203,12 @@ HELP = """\
 &nbsp;&nbsp;:bulkrename = rename in an editor, :compare = tag differences, :synchronize = sync the panes' folders
 &nbsp;&nbsp;:graph sunburst / treemap = disk usage, :graph timeline = when folders changed, :graph types = what they hold; after g, z, y, ", m, ', q, @, Ctrl-w the next keys are listed
 &nbsp;&nbsp;g/ or :grep TEXT = search inside files (Enter = edit at the line, Ctrl-Enter = files as a list)
-&nbsp;&nbsp;Quick view renders Markdown (click a [[link]] to go to the note) and PDFs; :obsidian = open in Obsidian
+&nbsp;&nbsp;Quick view renders Markdown (click a [[link]] to go to the note), CSV tables and PDFs; :obsidian = open in Obsidian
 &nbsp;&nbsp;gd or :diffthis = two files side by side (tagged, or both cursors): ]c / [c = next / previous change
 <b>Result lists</b>: :find, :grep, Ctrl-p + Ctrl-Enter and gr fill the pane with files from many folders;
 &nbsp;&nbsp;tag, yy, F5, Del, cw work as usual; h = back to the folder, gf = go to the file, :results = show again
 <b>Shelf</b>: zs = put on the shelf, zS = show / go to it, :shelf copy | move | zip | list | clear, :zip NAME
+<b>Recent</b>: :recent = files you opened, newest first; :recent changed 3 = files changed here in 3 days
 <b>Space</b>: :reclaim = caches and big old files, :dupes = duplicate files (:dupes tag = all but the newest)
 <b>Git</b>: changed / new / ignored files are colored, the branch is in the header; :git changed, :git diff (or gd)
 <b>More</b>: :linkpanes = browse two mirror trees together, :set columns = Miller columns, :rules = folder rules,
@@ -427,6 +431,7 @@ class MainWindow(QMainWindow):
                                                   if isinstance(h, str)][-HISTORY_SIZE:]
                                               for k in (":", "/", "=")} if isinstance(history, dict) \
             else {":": [], "/": [], "=": []}
+        self.recent: list[str] = [p for p in self.settings.get("recent") or [] if isinstance(p, str)][:RECENT_SIZE]
         self.search_dir = 1  # 1 after '/', -1 after '?'
         self.hl_active = False  # search matches highlighted (until :noh)
         self.filter_origin = ""
@@ -468,7 +473,7 @@ class MainWindow(QMainWindow):
         self.terminal.visibilityChanged.connect(self.on_terminal_shown)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.terminal)
         self.terminal.hide()
-        self.share_dialog: ShareDialog | None = None
+        self.share_dialog = None  # a sharedialog.ShareDialog while sharing
         remote.Remote.ask_password = staticmethod(self.ask_password)
         remote.Remote.ask_host = staticmethod(self.ask_host_key)
         self.remote_edits: dict[str, str] = {}  # local copy being edited -> its sftp:// URL
@@ -702,11 +707,14 @@ class MainWindow(QMainWindow):
         elif (path := self._local_copy(entry.path)) is None:
             return
         elif program := self.open_with(entry.name):
+            self.add_recent(entry.path)
             self._run(program, [path], entry.name)
         elif archive.is_archive(path):
             self.pane.cd(path)
-        elif not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
-            self.show_message(f"No application to open {entry.name}")
+        else:
+            self.add_recent(entry.path)
+            if not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
+                self.show_message(f"No application to open {entry.name}")
 
     def _local_copy(self, path: str, edit: bool = False) -> str | None:
         """`path`, or for a file inside an archive or on an SSH server a temporary copy.
@@ -751,8 +759,10 @@ class MainWindow(QMainWindow):
             self.show_message(f"Could not start {program}")
 
     def _open_files(self, program_key: str, count: int) -> None:
-        files = [self._local_copy(e.path, edit=program_key == "editor") for e in self.pane.targets(count)
-                 if not e.is_dir]
+        entries = [e for e in self.pane.targets(count) if not e.is_dir]
+        for e in entries:
+            self.add_recent(e.path)
+        files = [self._local_copy(e.path, edit=program_key == "editor") for e in entries]
         files = [f for f in files if f]
         if not files:
             self.show_message("No file to open")
@@ -1087,7 +1097,10 @@ class MainWindow(QMainWindow):
     def start_job(self, op: str, paths: list, target: str | None = None) -> Job:
         """Run a file operation in the background. A copy, move, sync or zip started
         while another one runs waits in the queue (unless "queue_jobs" is off)."""
-        job = Job(op, paths, target)
+        return self._queue_job(Job(op, paths, target))
+
+    def _queue_job(self, job: Job) -> Job:
+        op = job.op
         job.conflict.connect(lambda src, dest, job=job: job.answer(*ask_conflict(self, src, dest)))
         job.finished.connect(lambda msg, errors, job=job: self.on_job_done(job, msg, errors))
         self.jobs.append(job)
@@ -1186,6 +1199,12 @@ class MainWindow(QMainWindow):
             pane.reload()
         if errors:
             QMessageBox.warning(self, "Some operations failed", "\n".join(errors[:20]))
+        if job.op == "verify" and not job.cancelled:
+            if job.bad:
+                QMessageBox.warning(self, "Checksums", f"{len(job.bad)} file(s) failed:\n\n" + "\n".join(job.bad[:30]))
+                message = f"Checksums: {len(job.bad)} file(s) differ or are missing"
+            elif not errors:
+                message = "Checksums: all files OK"
         if job.op in ("undo", "redo") and not job.cancelled:
             hint = "   (Ctrl-r = redo)" if job.op == "undo" else "   (u = undo)"
             message = f"{'Undid' if job.op == 'undo' else 'Redid'} {job.what}{hint}"
@@ -1544,6 +1563,131 @@ class MainWindow(QMainWindow):
             return
         self.start_job("zip", paths, dest)
 
+    def cmd_pack(self, a):
+        """Alt+F5: pack the tagged items into a zip in the other pane, with Total Commander's options."""
+        if self._read_only(self.other, into=True) or self._remote_pane("Pack", self.other):
+            return
+        paths = self.pane_paths_for_pack(a.n())
+        if not paths:
+            return
+        name = (os.path.splitext(os.path.basename(paths[0]))[0] if len(paths) == 1
+                else os.path.basename(self.pane.path.rstrip("/\\")) or "archive") + ".zip"
+        box = PackDialog(self, len(paths), unique_dest(self.other.path, name))
+        if box.exec() != QDialog.DialogCode.Accepted:
+            self.pane.view.setFocus()
+            return
+        opts = box.options()
+        dest = os.path.abspath(os.path.expanduser(opts["dest"]))
+        if not dest.lower().endswith(".zip"):
+            dest += ".zip"
+        if opts["separate"] and len(paths) > 1:
+            folder = os.path.dirname(dest)
+            plan = [([p], unique_dest(folder, os.path.splitext(os.path.basename(p.rstrip("/\\")))[0] + ".zip"))
+                    for p in paths]
+        else:
+            if os.path.lexists(dest):
+                self.show_message(f"Already exists: {dest}")
+                return
+            plan = [(paths, dest)]
+        if not os.path.isdir(os.path.dirname(dest)):
+            self.show_message(f"No such folder: {os.path.dirname(dest)}")
+            return
+        for sources, target in plan:
+            job = Job("zip", sources, target)
+            job.zip_level, job.zip_move = opts["level"], opts["move"]
+            self._queue_job(job)
+        self.pane.view.setFocus()
+
+    def pane_paths_for_pack(self, count: int) -> list[str]:
+        if self._remote_pane("Pack", self.pane):
+            return []
+        paths = self._take_targets(count)
+        if not paths:
+            self.show_message("Nothing to pack")
+        elif any(archive.inside(p) for p in paths):
+            self.show_message("Copy files out of the archive first")
+            return []
+        return paths
+
+    def cmd_unpack(self, a):
+        """Alt+F9: unpack the tagged zips (or the one under the cursor) into the other pane."""
+        if self._read_only(self.other, into=True) or self._remote_pane("Unpack", self.pane) \
+                or self._remote_pane("Unpack", self.other):
+            return
+        zips = [p for p in self._take_targets(a.n()) if archive.is_archive(p)]
+        if not zips:
+            self.show_message("No zip file under the cursor or tagged")
+            return
+        box = UnpackDialog(self, [os.path.basename(z) for z in zips], self.other.path)
+        if box.exec() != QDialog.DialogCode.Accepted:
+            self.pane.view.setFocus()
+            return
+        opts = box.options()
+        dest = os.path.abspath(os.path.expanduser(opts["dest"]))
+        for z in zips:
+            try:
+                names = [n for n, *_ in archive.list_dir(z, "")]
+            except (OSError, zipfile.BadZipFile) as e:
+                self.show_message(f"{os.path.basename(z)}: {e}")
+                continue
+            target, made = dest, []
+            if opts["subfolder"]:
+                target = os.path.join(dest, os.path.splitext(os.path.basename(z))[0])
+            if not os.path.isdir(target):
+                try:
+                    os.makedirs(target)
+                except OSError as e:
+                    self.show_message(f"Can't create {target}: {e.strerror or e}")
+                    return
+                made = [("created", target)]
+            job = Job("copy", [os.path.join(z, n) for n in names], target)
+            job.undo.extend(made)  # undo also removes the folder made for it
+            self._queue_job(job)
+        self.pane.view.setFocus()
+
+    def cmd_branch(self, a):
+        """gb: Total Commander's branch view, every file below this folder in one list."""
+        self.ex_branch("")
+
+    def ex_branch(self, arg):
+        if self._local_only(":branch"):
+            return
+        if self.pane.archive or self.pane.results:
+            self.show_message("Run :branch in a folder")
+            return
+        root, hidden = self.pane.path, self.pane.model.show_hidden
+        self.remember_jump()
+        name = os.path.basename(root.rstrip("/\\")) or root
+        self.start_results(f"branch {name}", root,
+                           lambda stop: branch_paths(root, hidden, stop))
+
+    def ex_hash(self, arg):
+        """:hash [md5|sha1|sha256|sha512] writes a checksum file for the tagged items;
+        :hash check (or :hash on a checksum file) verifies one."""
+        if self._local_only(":hash") or self._read_only(into=True):
+            return
+        word = arg.strip().lower()
+        entries = [e for e in self.pane.targets(1) if not e.is_parent]
+        if word in ("check", "verify") or (not word and len(entries) == 1 and
+                                           os.path.splitext(entries[0].name)[1][1:].lower() in HASHES):
+            sums = [p for p in self._take_targets(1) if os.path.splitext(p)[1][1:].lower() in HASHES]
+            if not sums:
+                self.show_message(f"Put the cursor on a checksum file ({', '.join('.' + h for h in HASHES)})")
+                return
+            self.start_job("verify", sums)
+            return
+        algorithm = word or "sha256"
+        if algorithm not in HASHES:
+            self.show_message(f"Usage: :hash [{' | '.join(HASHES)} | check]")
+            return
+        paths = self._take_targets(1)
+        if not paths:
+            self.show_message("Nothing to hash")
+            return
+        stem = (os.path.basename(paths[0].rstrip("/\\")) if len(paths) == 1
+                else os.path.basename(self.pane.path.rstrip("/\\")) or "checksums")
+        self.start_job("hash", paths, unique_dest(self.pane.path, f"{stem}.{algorithm}"))
+
     def goto_path(self, path: str) -> None:
         """Show a file in the active pane, with the cursor on it."""
         self.remember_jump()
@@ -1655,6 +1799,12 @@ class MainWindow(QMainWindow):
     def _local_only(self, what: str) -> bool:
         """True (with a message) when the pane shows an SSH folder."""
         if self.pane.remote:
+            self.show_message(f"{what}: {LOCAL_ONLY}")
+            return True
+        return False
+
+    def _remote_pane(self, what: str, pane: Pane) -> bool:
+        if pane.remote:
             self.show_message(f"{what}: {LOCAL_ONLY}")
             return True
         return False
@@ -2051,6 +2201,7 @@ class MainWindow(QMainWindow):
         try:
             port = int(options.get("port", 0))
             minutes = max(1, int(options.get("minutes", 15)))
+            from .sharedialog import ShareDialog  # loads http.server: not at startup
             dialog = ShareDialog(items, upload, port, minutes, self)
         except (OSError, ValueError) as e:
             self.show_message(f"Can't share: {e}")
@@ -2710,6 +2861,8 @@ class MainWindow(QMainWindow):
         """gx: open with the system's default app (a folder opens in the system file manager)."""
         entry = self.pane.current_entry()
         path = self.pane.path if entry is None or entry.is_parent else self._local_copy(entry.path)
+        if entry is not None and not entry.is_dir:
+            self.add_recent(entry.path)
         if path and not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
             self.show_message(f"No application to open {os.path.basename(path)}")
 
@@ -2722,9 +2875,11 @@ class MainWindow(QMainWindow):
             if entry is None or entry.is_parent or entry.is_dir:
                 self.show_message("No file under the cursor")
                 return
+            self.add_recent(entry.path)
             path = self._local_copy(entry.path, edit=True)
             if path is None:
                 return
+        self.add_recent(path)
         if editor := self.settings["programs"].get("editor"):
             self._run(editor, [path], os.path.basename(path))
         elif not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
@@ -2761,7 +2916,8 @@ class MainWindow(QMainWindow):
     def cmd_command(self, a): self.show_cmdline(":", "")
 
     def cmd_help(self, a):
-        QMessageBox.information(self, "VimCommander keys", HELP.replace("\n", "<br>"))
+        from .helpview import HelpDialog
+        HelpDialog(HELP, self).exec()
 
     def show_cmdline(self, prompt: str, text: str) -> None:
         self.whichkey.hide()
@@ -3303,6 +3459,7 @@ class MainWindow(QMainWindow):
 
     def edit_at(self, path: str, line: int) -> None:
         """Open a file in the editor at a line (programs.editor_line), else just the file."""
+        self.add_recent(path)
         programs = self.settings["programs"]
         ctx = {**self.bar_context(), "current": path, "line": line}
         if program := programs.get("editor_line"):
@@ -3363,6 +3520,45 @@ class MainWindow(QMainWindow):
         self.searches[id(pane)] = search
         self.show_message("Searching…")
         search.start()
+
+    def add_recent(self, path: str) -> None:
+        """Remember a file opened from the app, for :recent (local files only)."""
+        if remote.is_remote(path) or archive.inside(path) or not os.path.isfile(path):
+            return
+        path = os.path.abspath(path)
+        key = os.path.normcase(path)
+        self.recent = [path] + [p for p in self.recent if os.path.normcase(p) != key][:RECENT_SIZE - 1]
+
+    def ex_recent(self, arg):
+        """:recent lists the files you opened, newest first; :recent DAYS the files changed
+        below this folder in the last DAYS days (default 7 with :recent changed)."""
+        words = arg.split()
+        if not words:
+            paths = [p for p in self.recent if os.path.exists(p)]
+            if not paths:
+                self.show_message("No files opened yet (Enter, :e, F3 / F4 on a file adds it)")
+                return
+            self.remember_jump()
+            self.show_result_list("recent files", self.pane.path, paths)  # .. / h return here
+            return
+        if words[0] == "clear":
+            self.recent = []
+            self.save_settings()
+            self.show_message("Recent files cleared")
+            return
+        if words[0] == "changed":
+            words = words[1:] or ["7"]
+        try:
+            days = float(words[0])
+        except ValueError:
+            self.show_message("Usage: :recent, :recent [changed] DAYS, :recent clear")
+            return
+        if self._local_only(":recent") or self.pane.archive:
+            return
+        root, hidden = self.pane.path, self.pane.model.show_hidden
+        self.remember_jump()
+        self.start_results(f"changed in {words[0]} days", root,
+                           lambda stop: changed_files(root, days, hidden, stop))
 
     def show_result_list(self, title: str, root: str, paths: list[str], pane: Pane | None = None) -> None:
         pane = pane or self.pane
@@ -3511,6 +3707,7 @@ class MainWindow(QMainWindow):
             "tabs": [pane.tab_paths() for pane in self.panes],
             "tab_index": [pane.tab for pane in self.panes],
             "history": self.history,
+            "recent": self.recent,
             "pane_ratio": round(self.splitter.ratio, 4),
             "grid": [pane.grid_mode for pane in self.panes],
             "thumbnail_size": self.panes[0].grid.thumb_size,

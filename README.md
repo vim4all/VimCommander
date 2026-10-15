@@ -62,7 +62,7 @@ VimCommander combines the layout of Total Commander with the keyboard of [vifm](
 - **Safe delete**: `Del` moves files to the system trash (Recycle Bin on Windows) after asking. `Shift-Del` deletes permanently.
 - **Right-click menu**: on Windows, the real Explorer menu (Open with, Send to, 7-Zip, Git, Properties…) plus a few VimCommander items. On Linux and macOS, VimCommander's own menu.
 - **Tabs** in each pane, a **drive menu** (`Alt-F1` / `Alt-F2` or the drive button), and free space in the status bar.
-- **Quick view** (`Ctrl-q`): the other pane previews text files, images, PDFs and folders as you move. Markdown notes are rendered, and their Obsidian `[[links]]` and embedded images work: click a link to go to that note. Binary files show as a hex dump (`:hex` shows every file that way).
+- **Quick view** (`Ctrl-q`): the other pane previews text files, images, PDFs and folders as you move. Markdown notes are rendered, and their Obsidian `[[links]]` and embedded images work: click a link to go to that note. CSV / TSV files show as a table with the row and column count; hover a column header for its summary (min, max, mean, or distinct values, and empty cells). Binary files show as a hex dump (`:hex` shows every file that way).
 - **Which-key and command palette**: pause after a prefix like `g`, `z`, `"` or `Ctrl-w` and the possible next keys are listed; `Ctrl-Shift-p` finds any action or command by typing part of its name.
 - **Fuzzy file finder** (`Ctrl-p`): find any file below the current folder by a few letters, fzf style, ranked with your zoxide history, with a live preview.
 - **Result lists**: `:find`, `:grep`, the file finder and the activity calendar can fill a pane with files from many folders, where tagging, copying, moving, renaming and trashing work as in any folder.
@@ -71,6 +71,7 @@ VimCommander combines the layout of Total Commander with the keyboard of [vifm](
 - **Compare and synchronize folders** (`:compare`, `:synchronize`), like Total Commander's "Synchronize dirs".
 - **Side-by-side diff** (`gd` or `:diffthis`) of two text files, vimdiff style, with `]c` / `[c` to jump between changes.
 - **Shelf** (`zs`): collect files from different folders in a side panel, then copy, move or zip them all at once, or drag them into another app.
+- **Recent files**: `:recent` lists the files you opened from VimCommander, newest first, as a result list; `:recent changed 3` lists the files changed below the current folder in the last 3 days.
 - **Free space**: `:reclaim` lists rebuildable caches (`node_modules`, `__pycache__`, build folders…) and big old files; `:dupes` finds duplicate files and tags all but the newest copy.
 - **Git awareness**: changed, new and ignored files are colored, the branch is in the path header, `:git changed` lists every changed file, and `gd` shows a file next to its last committed version.
 - **Linked panes** (`:linkpanes`): browse two mirror trees (a project and its backup) together, with what only one side has marked.
@@ -262,6 +263,9 @@ Tagged items are highlighted. File operations act on the tagged items, or on the
 | `@:` | repeat the last `:` command; `3@:` three times |
 | `p` | paste the yanked or cut items into this pane's folder |
 | `F5` / `F6` | copy / move to the other pane |
+| `Alt-F5` | pack the tagged items (or the cursor's) into a zip in the other pane: a dialog for the name, compression level, *move to archive* and *one archive per item*; `u` undoes it |
+| `gb` | branch view: every file below this folder in one result list (like Total Commander's Ctrl-B); `h` goes back |
+| `Alt-F9` | unpack the tagged zips (or the one under the cursor) into the other pane, optionally each into its own subfolder |
 | `Del`, `F8` | move to trash (asks first) |
 | `Shift-Del` | delete permanently (asks first; can't be undone) |
 | `u` / `Ctrl-r` | undo / redo the last copy, move, rename, new folder / file or move to trash; `3u` undoes three. A new change clears what can be redone |
@@ -333,7 +337,10 @@ Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 | `:obsidian` | open the note (or folder) under the cursor in Obsidian |
 | `:diffthis [FILE]` | [diff](#side-by-side-diff) two files: tagged, under both cursors (`gd`), or the cursor's file and FILE |
 | `:shelf [add\|copy\|move\|zip [NAME]\|list\|clear]` | the [shelf](#shelf); no argument shows / hides it |
+| `:branch` | branch view, same as `gb` |
+| `:hash [ALGO]` | write a checksum file (`md5`, `sha1`, `sha256` default, `sha512`) for the tagged items, folders included, in the `sha256sum` / Total Commander format; `:hash check`, or `:hash` with the cursor on a `.sha256` etc., verifies one and lists files that differ or are missing |
 | `:zip [NAME]` | pack the tagged items (or the cursor's) into `NAME.zip` in this folder; `u` removes it again |
+| `:recent`, `:recent [changed] DAYS`, `:recent clear` | files you opened (Enter, `:e`, F3/F4…), newest first, as a result list; or the files changed below this folder in the last DAYS days (default 7), newest first |
 | `:reclaim [SIZE] [DAYS]` | [caches and big old files](#freeing-space) below this folder, biggest first (default: files over 100M unchanged for 180 days) |
 | `:dupes [MINSIZE]`, `:dupes tag [old]` | [duplicate files](#freeing-space) as a result list; in it, tag all but the newest (or oldest) copy of each set |
 | `:git`, `:git changed`, `:git diff` | [git](#git): branch and counts / every changed file as a result list / the file under the cursor next to its last commit |

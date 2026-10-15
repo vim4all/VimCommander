@@ -1,7 +1,7 @@
 """Quick view (Ctrl-q): shows the file under the cursor in the other pane.
 
 Text files show their first part, images are scaled to fit, folders and other
-files show a short summary. Markdown is rendered (Obsidian links work), PDFs
+files show a short summary. Markdown is rendered (Obsidian links work), CSV / TSV files show as a table, PDFs
 show their first pages, rendered by PDFium (pypdfium2) on a worker thread.
 """
 
@@ -12,10 +12,10 @@ from datetime import datetime
 
 from PySide6.QtCore import QByteArray, QObject, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFontDatabase, QImage, QImageReader, QPixmap, QTextDocument
-from PySide6.QtWidgets import (QFrame, QLabel, QPlainTextEdit, QScrollArea, QSizePolicy, QStackedWidget,
-                               QTextBrowser, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QFrame, QLabel, QPlainTextEdit, QScrollArea, QSizePolicy,
+                               QStackedWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
-from . import archive, graphview, mdnotes, remote
+from . import archive, graphview, mdnotes, remote, tabular
 
 TEXT_LIMIT = 256 * 1024
 IMAGE_LIMIT = 64 * 1024 * 1024
@@ -119,14 +119,17 @@ class PdfRenderer(QObject):
         self.token += 1
 
     def _run(self) -> None:
-        try:
-            import pypdfium2 as pdfium
-        except ImportError:
-            pdfium = None
+        pdfium = loaded = None
         while True:
             token, source, width = self.requests.get()
             if token != self.token:
                 continue
+            if not loaded:  # on the first PDF: importing it at startup slowed the window's first paint
+                loaded = True
+                try:
+                    import pypdfium2 as pdfium
+                except ImportError:
+                    pdfium = None
             if pdfium is None:
                 self.failed.emit(token, "PDF preview needs pypdfium2 (pip install pypdfium2)")
                 continue
@@ -304,6 +307,35 @@ class MarkdownView(QTextBrowser):
             self.open_requested.emit(path)
 
 
+class CsvView(QTableWidget):
+    """A CSV file as a table; hovering a column header shows the column's summary."""
+
+    def __init__(self):
+        super().__init__()
+        self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setAlternatingRowColors(True)
+        self.setWordWrap(False)
+        self.verticalHeader().setDefaultSectionSize(self.fontMetrics().height() + 4)
+
+    def show_table(self, table: tabular.Table) -> None:
+        self.clear()
+        self.setRowCount(len(table.rows))
+        self.setColumnCount(len(table.header))
+        self.setHorizontalHeaderLabels(table.header)
+        for c, name in enumerate(table.header):
+            self.horizontalHeaderItem(c).setToolTip(f"{name}: {tabular.column_stats(table, c)}")
+        for r, row in enumerate(table.rows):
+            for c, cell in enumerate(row):
+                item = QTableWidgetItem(cell)
+                if tabular._number(cell) is not None:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                self.setItem(r, c, item)
+        self.resizeColumnsToContents()
+        for c in range(self.columnCount()):
+            self.setColumnWidth(c, min(self.columnWidth(c), 300))
+
+
 class QuickView(QWidget):
     def __init__(self):
         super().__init__()
@@ -324,11 +356,12 @@ class QuickView(QWidget):
         self.graph = graphview.GraphView()
         self.markdown = MarkdownView()
         self.pdf = PdfView()
+        self.csv = CsvView()
         self.pdf.status.connect(lambda text: self.title.setText(
             f"{os.path.basename(self.current or '')}   {text}"))
         self.show_hidden = False  # set by the main window, for the graph's scan
         self.stack = QStackedWidget()
-        for w in (self.text, self.image, self.info, self.graph, self.markdown, self.pdf):
+        for w in (self.text, self.image, self.info, self.graph, self.markdown, self.pdf, self.csv):
             self.stack.addWidget(w)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -343,6 +376,7 @@ class QuickView(QWidget):
         self.graph.stop()
         self.pdf.stop()
         self.markdown.clear()
+        self.csv.clear()
 
     def show_path(self, path: str | None, is_dir: bool = False) -> None:
         if path == self.current:
@@ -385,7 +419,7 @@ class QuickView(QWidget):
 
     def scroll_pages(self, pages: int) -> None:
         widget = self.stack.currentWidget()
-        bar = (widget if widget in (self.text, self.markdown, self.pdf) else self.text).verticalScrollBar()
+        bar = (widget if widget in (self.text, self.markdown, self.pdf, self.csv) else self.text).verticalScrollBar()
         bar.setValue(bar.value() + pages * bar.pageStep())
 
     # Kinds of preview
@@ -484,6 +518,9 @@ class QuickView(QWidget):
 
     def _show_text(self, text: str, size: int, path: str, local: str | None) -> None:
         """Plain text, or a rendered note for Markdown (links only work for local files)."""
+        if tabular.is_table(path):
+            self._csv(text, size, path)
+            return
         if size > TEXT_LIMIT:
             text += f"\n\n… (first {_size(TEXT_LIMIT)} of {_size(size)} shown)"
         if mdnotes.is_markdown(path):
@@ -492,6 +529,19 @@ class QuickView(QWidget):
         else:
             self.text.setPlainText(text)
             self.stack.setCurrentWidget(self.text)
+
+    def _csv(self, text: str, size: int, path: str) -> None:
+        table = tabular.parse(text, path, truncated=size > TEXT_LIMIT)
+        if not table.header:
+            self.text.setPlainText(text)
+            self.stack.setCurrentWidget(self.text)
+            return
+        sep = {"\t": "tab", ",": "comma", ";": "semicolon", "|": "bar"}.get(table.delimiter, table.delimiter)
+        shown = "" if table.complete else "   first part"
+        self.title.setText(f"{os.path.basename(path)}   {len(table.rows)} rows × {len(table.header)} columns"
+                           f"   {sep}-separated   {_size(size)}{shown}   (hover a column for its summary)")
+        self.csv.show_table(table)
+        self.stack.setCurrentWidget(self.csv)
 
     def _pdf(self, path: str, in_archive: bool) -> None:
         if in_archive:

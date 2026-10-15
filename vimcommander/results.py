@@ -8,6 +8,7 @@ on the GUI thread.
 import fnmatch
 import os
 import threading
+import time
 from collections.abc import Callable, Iterator
 
 from PySide6.QtCore import QObject, Signal
@@ -39,6 +40,62 @@ def find_paths(root: str, pattern: str, show_hidden: bool = False,
             batch = []
     if batch:
         yield batch
+
+
+def branch_paths(root: str, show_hidden: bool = False,
+                 stop: threading.Event | None = None, limit: int = 50000) -> Iterator[list[str]]:
+    """Batches of every file below `root` (Total Commander's branch view)."""
+    batch, count = [], 0
+    for folder, dirs, files in os.walk(root):
+        if stop and stop.is_set():
+            return
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and (show_hidden or not d.startswith(".")))
+        for name in sorted(files):
+            if show_hidden or not name.startswith("."):
+                batch.append(os.path.join(folder, name))
+                count += 1
+                if count >= limit:
+                    yield batch
+                    return
+        if len(batch) >= 200:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
+
+
+def changed_files(root: str, days: float, show_hidden: bool = False,
+                  stop: threading.Event | None = None, limit: int = 5000) -> Iterator[list]:
+    """(path, note) for the files below `root` changed in the last `days` days, newest first
+    (yielded once, at the end, so the order is right)."""
+    since = time.time() - days * 86400
+    found = []
+    for folder, dirs, files in os.walk(root):
+        if stop and stop.is_set():
+            return
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and (show_hidden or not d.startswith("."))]
+        for name in files:
+            if not show_hidden and name.startswith("."):
+                continue
+            path = os.path.join(folder, name)
+            try:
+                mtime = os.stat(path).st_mtime
+            except OSError:
+                continue
+            if mtime >= since:
+                found.append((mtime, path))
+    found.sort(reverse=True)
+    yield [(path, ago(mtime)) for mtime, path in found[:limit]]
+
+
+def ago(mtime: float) -> str:
+    """'5 min ago', '3 h ago', '2 days ago'."""
+    s = max(0, time.time() - mtime)
+    if s < 3600:
+        return f"{int(s // 60)} min ago"
+    if s < 86400:
+        return f"{int(s // 3600)} h ago"
+    return f"{int(s // 86400)} days ago"
 
 
 class Search(QObject):

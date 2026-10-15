@@ -66,6 +66,37 @@ class FindTest(unittest.TestCase):
             self.assertEqual(sorted(z.namelist()), ["a/b/Deep.TXT", "a/notes.txt", "readme.md"])
         self.assertEqual(job.undo, [("created", dest)])
 
+    def test_hash_and_verify(self):
+        from vimcommander.fileops import parse_checksums
+        sums = os.path.join(self.root, "a.sha256")
+        job = Job("hash", [os.path.join(self.root, "a")], sums)
+        job._run()
+        names = [n for _, n in parse_checksums(sums)]
+        self.assertEqual(names, ["a/b/Deep.TXT", "a/notes.txt"])
+        job = Job("verify", [sums])
+        job._run()
+        self.assertEqual(job.bad, [])
+        with open(os.path.join(self.root, "a", "notes.txt"), "a") as f:
+            f.write("changed")
+        os.remove(os.path.join(self.root, "a", "b", "Deep.TXT"))
+        job = Job("verify", [sums])
+        job._run()
+        self.assertEqual(job.bad, ["a/b/Deep.TXT: missing", "a/notes.txt: differs"])
+
+    def test_branch_paths(self):
+        from vimcommander.results import branch_paths
+        found = [p for batch in branch_paths(self.root) for p in batch]
+        self.assertTrue(found and all(os.path.isfile(p) for p in found))
+        self.assertIn(os.path.join(self.root, "a", "b", "Deep.TXT"), found)
+
+    def test_zip_job_stored(self):
+        dest = os.path.join(self.root, "stored.zip")
+        job = Job("zip", [os.path.join(self.root, "a")], dest)
+        job.zip_level = 0
+        job._zip(job.sources[0])
+        with zipfile.ZipFile(dest) as z:
+            self.assertEqual({i.compress_type for i in z.infolist()}, {zipfile.ZIP_STORED})
+
 
 class DiffTest(unittest.TestCase):
     def test_align(self):

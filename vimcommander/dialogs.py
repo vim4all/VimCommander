@@ -1,10 +1,10 @@
-"""Dialogs: file operation progress, name clash question, zoxide folder picker."""
+"""Dialogs: file operation progress, name clash question, pack / unpack, zoxide folder picker."""
 
 import os
 from datetime import datetime
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QLabel, QLineEdit,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFormLayout, QDialogButtonBox, QLabel, QLineEdit,
                                QListWidget, QMessageBox, QProgressBar, QVBoxLayout, QWidget)
 
 from . import archive
@@ -174,3 +174,64 @@ class ZoxideDialog(QDialog):
             self._choose(bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier))
         else:
             super().keyPressEvent(e)
+
+
+LEVELS = [("Normal", 6), ("Maximum (slow)", 9), ("Fast", 1), ("Store (no compression)", 0)]
+
+
+class PackDialog(QDialog):
+    """Total Commander's Alt+F5: where to pack the files, and how."""
+
+    def __init__(self, parent: QWidget, count: int, dest: str):
+        super().__init__(parent)
+        self.setWindowTitle("Pack files")
+        form = QFormLayout(self)
+        form.addRow(QLabel(f"Pack {count} item(s) into:"))
+        self.path = QLineEdit(dest)
+        self.path.setMinimumWidth(480)
+        stem = os.path.splitext(os.path.basename(dest))[0]
+        start = len(dest) - len(os.path.basename(dest))
+        self.path.setSelection(start, len(stem))  # typing replaces just the name
+        form.addRow("Archive:", self.path)
+        self.level = QComboBox()
+        for label, _ in LEVELS:
+            self.level.addItem(label)
+        form.addRow("Compression:", self.level)
+        self.move = QCheckBox("Move to archive (put the originals in the trash)")
+        self.separate = QCheckBox("Create a separate archive for each item")
+        form.addRow(self.move)
+        form.addRow(self.separate)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+
+    def options(self) -> dict:
+        return {"dest": self.path.text().strip(), "level": LEVELS[self.level.currentIndex()][1],
+                "move": self.move.isChecked(), "separate": self.separate.isChecked()}
+
+
+class UnpackDialog(QDialog):
+    """Total Commander's Alt+F9: where to unpack the archives."""
+
+    def __init__(self, parent: QWidget, names: list[str], dest: str):
+        super().__init__(parent)
+        self.setWindowTitle("Unpack files")
+        form = QFormLayout(self)
+        shown = ", ".join(names[:3]) + (f" and {len(names) - 3} more" if len(names) > 3 else "")
+        label = QLabel(f"Unpack {shown} to:")
+        label.setWordWrap(True)
+        form.addRow(label)
+        self.path = QLineEdit(dest)
+        self.path.setMinimumWidth(480)
+        form.addRow("Folder:", self.path)
+        self.subfolder = QCheckBox("Unpack each archive into its own subfolder")
+        self.subfolder.setChecked(len(names) > 1)
+        form.addRow(self.subfolder)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+
+    def options(self) -> dict:
+        return {"dest": self.path.text().strip(), "subfolder": self.subfolder.isChecked()}

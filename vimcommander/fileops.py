@@ -6,6 +6,7 @@ what it did in `undo` so the operation can be reversed.
 """
 
 import errno
+import hashlib
 import os
 import posixpath
 import shutil
@@ -138,7 +139,27 @@ OPERATIONS = {  # op: (verb while running, verb when done)
     "redo": ("Redoing", "Redid"),
     "sync": ("Synchronizing", "Synchronized"),
     "zip": ("Zipping", "Zipped"),
+    "hash": ("Hashing", "Hashed"),
+    "verify": ("Verifying", "Verified"),
 }
+
+HASHES = ("md5", "sha1", "sha256", "sha512")  # also the checksum files' extensions
+
+
+def parse_checksums(path: str) -> list[tuple[str, str]]:
+    """(hex digest, relative path) from an md5sum / sha256sum style file
+    ("HEX *name" or "HEX  name"); Total Commander writes the same format."""
+    pairs = []
+    with open(path, encoding="utf-8-sig", errors="replace") as f:
+        for line in f:
+            line = line.rstrip("\r\n")
+            if not line.strip() or line.startswith(";") or line.startswith("#"):
+                continue
+            digest, _, name = line.partition(" ")
+            name = name[1:] if name[:1] in ("*", " ") else name
+            if digest and name:
+                pairs.append((digest.lower(), name.replace("\\", "/")))
+    return pairs
 
 
 class Job(QObject):
@@ -168,6 +189,10 @@ class Job(QObject):
         self._name = ""
         self._last_emit = 0.0
         self._zip_names: set[str] = set()  # names already in the zip being made
+        self.zip_level = 6  # zlib level 0-9 (0 = stored, no compression)
+        self.zip_move = False  # trash the sources once the zip is complete
+        self.hash_lines: list[str] = []  # "hash": lines of the checksum file (target_dir) being made
+        self.bad: list[str] = []  # "verify": files that differ or are missing
         self._channels: dict[str, object] = {}  # remote host key -> this job's SFTP channel
 
     @property
@@ -230,8 +255,12 @@ class Job(QObject):
                 self.bytes_total = sum(self._size_to_copy(s) for s in self.sources)
             elif self.op == "sync":
                 self.bytes_total = sum(self._tree_size(src) for src, _ in self.sources)
-            elif self.op == "zip":
+            elif self.op in ("zip", "hash"):
                 self.bytes_total = sum(tree_size(src, self._stop)[0] for src in self.sources)
+            elif self.op == "verify":
+                self.bytes_total = sum(os.path.getsize(os.path.join(os.path.dirname(c), n))
+                                       for c in self.sources for _, n in parse_checksums(c)
+                                       if os.path.isfile(os.path.join(os.path.dirname(c), n)))
             work = getattr(self, "_" + self.op)
             for src in self.sources:
                 self._name = remote.basename(src) if isinstance(src, str) else remote.basename(src[1])
@@ -245,6 +274,16 @@ class Job(QObject):
                     errors.append(f"{self._name}: {e.strerror or e}" if isinstance(e, OSError)
                                   else f"{self._name}: {e}")
                 self.items_done += 1
+            if self.op == "zip" and self.zip_move and not errors:
+                for src in self.sources:  # only now: a cancelled zip leaves the sources alone
+                    try:
+                        self._trash(src)
+                    except OSError as e:
+                        errors.append(f"{os.path.basename(src)}: {e.strerror or e}")
+            if self.op == "hash" and self.hash_lines:
+                with open(self.target_dir, "w", encoding="utf-8", newline="\n") as f:
+                    f.write("".join(self.hash_lines))
+                self.undo.append(("created", self.target_dir))
         except Cancelled:
             if self.op == "zip" and self.undo:  # no half-made zip
                 try:
@@ -491,7 +530,8 @@ class Job(QObject):
         while name.casefold() in self._zip_names:
             name, i = f"{stem} ({i}){ext}", i + 1
         self._zip_names.add(name.casefold())
-        with zipfile.ZipFile(self.target_dir, "a", zipfile.ZIP_DEFLATED) as z:
+        method = zipfile.ZIP_DEFLATED if self.zip_level else zipfile.ZIP_STORED
+        with zipfile.ZipFile(self.target_dir, "a", method, compresslevel=self.zip_level or None) as z:
             if not os.path.isdir(src):
                 z.write(src, name)
                 self._advance(os.path.getsize(src))
@@ -508,6 +548,44 @@ class Job(QObject):
                         continue  # the zip itself, when zipping its own folder
                     z.write(path, os.path.join(inner, f))
                     self._advance(os.path.getsize(path))
+
+    # Checksums: target_dir is the checksum file; its extension names the algorithm
+
+    def _digest(self, path: str, algorithm: str) -> str:
+        h = hashlib.new(algorithm)
+        with open(path, "rb") as f:
+            while chunk := f.read(CHUNK):
+                h.update(chunk)
+                self._advance(len(chunk))
+        return h.hexdigest()
+
+    def _hash(self, src: str):
+        if remote.is_remote(src) or archive.inside(src):
+            raise OSError("can only hash local files")
+        algorithm = os.path.splitext(self.target_dir)[1][1:].lower()
+        base = os.path.dirname(self.target_dir)
+        files = [src] if not os.path.isdir(src) else sorted(
+            os.path.join(folder, f) for folder, _, names in os.walk(src) for f in names)
+        for path in files:
+            if _same(path, self.target_dir):
+                continue
+            rel = os.path.relpath(path, base).replace(os.sep, "/")
+            self.hash_lines.append(f"{self._digest(path, algorithm)} *{rel}\n")
+
+    def _verify(self, src: str):
+        algorithm = os.path.splitext(src)[1][1:].lower()
+        if algorithm not in HASHES:
+            raise OSError(f"unknown checksum type (use {', '.join('.' + h for h in HASHES)})")
+        base = os.path.dirname(src)
+        for digest, name in parse_checksums(src):
+            path = os.path.join(base, *name.split("/"))
+            self._name = name
+            if not os.path.isfile(path):
+                self.bad.append(f"{name}: missing")
+            elif self._digest(path, algorithm) != digest:
+                self.bad.append(f"{name}: differs")
+        if self.bad:
+            return False
 
     # Trash and delete
 

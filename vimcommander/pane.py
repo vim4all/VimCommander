@@ -595,6 +595,9 @@ class FileView(ViewBehavior, QTableView):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        # Sizes and dates all have about the same width: measuring 1000 rows (Qt's
+        # default) on every reload made startup and big folders slow.
+        header.setResizeContentsPrecision(40)
         header.setHighlightSections(False)
 
     def resizeEvent(self, event):
