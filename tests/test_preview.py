@@ -103,6 +103,28 @@ class NaturalSortTest(unittest.TestCase):
             self.assertEqual([e.name for e in model.entries][3:], ["run1.csv", "run10.csv", "run9.csv"])
 
 
+class DriveMenuTest(unittest.TestCase):
+    """As in Total Commander: picking the other pane's drive opens the other pane's folder."""
+
+    def test_other_panes_folder(self):
+        from PySide6.QtCore import QStorageInfo
+        app = QApplication.instance() or QApplication([])
+        self.assertIsNotNone(app)
+        with tempfile.TemporaryDirectory() as root:
+            left_dir, right_dir = os.path.join(root, "left"), os.path.join(root, "right")
+            os.mkdir(left_dir)
+            os.mkdir(right_dir)
+            left, right = pane.Pane(left_dir), pane.Pane(right_dir)
+            left.other_folder = lambda: right.path
+            drive = QStorageInfo(right_dir).rootPath()
+            self.assertEqual(left.drive_folder(drive), right.path)
+            self.assertEqual(left.drive_folder("/no-such-drive/"), "/no-such-drive/")  # another drive: its root
+            left.other_folder = None
+            self.assertEqual(left.drive_folder(drive), drive)
+            left.deleteLater()
+            right.deleteLater()
+
+
 class NotebookTest(unittest.TestCase):
     def test_convert(self):
         nb = notebook.convert(notebook_json(png_base64()))
@@ -185,6 +207,22 @@ class QuickViewTest(unittest.TestCase):
         self.view.show_path(self.write("bad.ipynb", b"{oops"))
         self.assertIs(self.view.stack.currentWidget(), self.view.text)  # shown as text instead
 
+    def test_ltspice(self):
+        import struct
+        from tests.test_ltspice import raw
+        body = b"".join(struct.pack("<df", t * 1e-6, t % 5) for t in range(100))
+        self.view.show_path(self.write("sim.raw", raw(["time", "V(out)"], ["time", "voltage"], 100, body=body)))
+        self.assertIs(self.view.stack.currentWidget(), self.view.plot_area)
+        self.wait(lambda: self.view.plot.data is not None)
+        self.assertEqual((self.view.plot.data.rows, self.view.plot.data.units), (100, ["s", "V"]))
+        op = raw(["V(a)"], ["voltage"], 1, "real", struct.pack("<d", 3.3))
+        self.view.show_path(self.write("sim.op.raw", op))
+        self.wait(lambda: self.view.stack.currentWidget() is self.view.markdown)
+        self.assertIn("3.3", self.view.markdown.toPlainText())
+        self.view.show_path(self.write("photo.raw", bytes(range(256)) * 8))
+        self.wait(lambda: self.view.stack.currentWidget() is self.view.text)
+        self.assertIs(self.view.stack.currentWidget(), self.view.text)  # someone else's .raw: hex
+
     def test_ioc(self):
         self.view.show_path(self.write("p.ioc", IOC.encode()))
         self.assertIs(self.view.stack.currentWidget(), self.view.markdown)
@@ -212,6 +250,20 @@ class QuickViewTest(unittest.TestCase):
         self.assertLess(len(plot._traces[0][0]), 20)  # few samples: one point each
         plot.zoom_out()
         self.assertEqual(plot.span, (0.0, 4999.0))
+        # a column that doesn't rise as the x axis: a scatter of the others against it
+        plot.set_x(1)
+        self.assertTrue(plot.scatter)
+        plot.grab()
+        self.assertEqual(plot.span, (0.0, 6.0))
+        self.assertEqual(len(plot._traces), 1)  # Time is now a strip, plotted against I
+        self.assertEqual(plot._stats[0][:2], (0.0, 4999.0))
+        plot.zoom_to(5.5, 6.0)  # only the rows where I = 6
+        plot.grab()
+        self.assertTrue(all(abs(v % 7 - 6) < 1e-9 for _, v in plot._traces[0][0]))
+        names = [rect for rect, column in plot._labels if column is None]
+        plot.set_x(plot.data.x)  # back to time
+        self.assertFalse(plot.scatter)
+        self.assertEqual(len(names), 1)
         text = self.write("t.csv", b"name,city\nann,Riga\nbob,Kyiv\n")
         self.view.show_path(text)
         self.wait(lambda: self.view.stack.currentWidget() is self.view.csv)

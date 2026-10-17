@@ -40,7 +40,7 @@ from .dialogs import PackDialog, ProgressDialog, UnpackDialog, ZoxideDialog, ask
 from .jobs import QUEUED_OPS, JobsPanel
 from .fileops import HASHES, Job, SizeJob, unique_dest
 from .pane import DIR_SIZES, NATURAL, SORT_KEYS, Entry, Pane, Results, child_name, human_size, set_colors
-from .results import Search, branch_paths, changed_files, find_paths
+from .results import Search, branch_paths, changed_files, find_paths, parse_find
 from .rename import check_names, format_name, parse_substitute
 from .vim import NORMAL, VISUAL, Action, KeyEngine, parse_langmap, user_bindings
 from .rulesdialog import RulesDialog, group_steps
@@ -212,6 +212,7 @@ HELP = """\
 &nbsp;&nbsp;Quick view renders Markdown (click a [[link]] to go to the note), CSV tables and PDFs; :obsidian = open in Obsidian
 &nbsp;&nbsp;Jupyter notebooks (cells, outputs, plots) and STM32CubeMX .ioc projects (pins, clocks, peripherals) too
 &nbsp;&nbsp;zp = CSV files as a plot / as a table; on the plot: drag = zoom in, right-click = back, double-click = all
+&nbsp;&nbsp;on the plot, click a column's name = plot the others against it (a scatter if it doesn't rise); LTspice .raw files always plot
 &nbsp;&nbsp;gd or :diffthis = two files side by side (tagged, or both cursors): ]c / [c = next / previous change
 <b>Result lists</b>: :find, :grep, Ctrl-p + Ctrl-Enter and gr fill the pane with files from many folders;
 &nbsp;&nbsp;tag, yy, F5, Del, cw work as usual; h = back to the folder, gf = go to the file, :results = show again
@@ -248,7 +249,7 @@ HELP = """\
 &nbsp;&nbsp;:g/PATTERN/CMD = tag matching names, then CMD on them (d = trash, d! = delete, y = yank, normal KEYS,
 &nbsp;&nbsp;any : command); :g!/… or :v/… = the names that don't match; :g/PATTERN/ = only tag them
 &nbsp;&nbsp;:hex = quick view in hex for every file (binary files always show in hex)
-&nbsp;&nbsp;:find PATTERN (search below this folder) &nbsp; :drives &nbsp; :undo
+&nbsp;&nbsp;:find PATTERN (search below this folder; add size>1M, newer:7d, older:2w, type:f / type:d) &nbsp; :drives &nbsp; :undo
 &nbsp;&nbsp;:z KEYWORDS = jump with zoxide (Tab completes) &nbsp; :zi or gz = pick from zoxide's list
 &nbsp;&nbsp;:sort name|ext|size|time (-size = reverse) &nbsp; :sync (other pane goes here)
 &nbsp;&nbsp;:!CMD (run in this folder; %d %o %f %s are filled in) &nbsp; :42 (go to line) &nbsp; :help
@@ -535,6 +536,7 @@ class MainWindow(QMainWindow):
             pane.folder_changed.connect(lambda path, i=i: self.follow_link(i, path))
             pane.folder_changed.connect(lambda path, i=i: i == self.active and self.terminal.follow(path))
             pane.folder_changed.connect(lambda path, i=i: self.follow_vterm(i, path))
+            pane.other_folder = lambda i=i: self.panes[1 - i].path
             pane.view.cursor_moved.connect(lambda i=i: self.follow_link_cursor(i))
             pane.listed.connect(lambda pane=pane: self.on_listed(pane))
             timer = QTimer(self, singleShot=True, interval=250)
@@ -3654,14 +3656,19 @@ class MainWindow(QMainWindow):
         if self._local_only(":find"):
             return
         if not arg:
-            self.show_message("Usage: :find PATTERN   (e.g. :find *.log or :find report)")
+            self.show_message("Usage: :find PATTERN [size>1M] [size<500k] [newer:7d] [older:2w] [type:f|d]")
             return
         if self.pane.archive:
             self.show_message("Can't search inside archives")
             return
+        try:
+            pattern, conditions = parse_find(arg)
+        except ValueError as e:
+            self.show_message(str(e))
+            return
         root, hidden = self.pane.path, self.pane.model.show_hidden
         self.start_results(f"find {arg}", root,
-                           lambda stop: find_paths(root, arg, hidden, stop, limit=5000))
+                           lambda stop: find_paths(root, pattern, hidden, stop, limit=5000, conditions=conditions))
 
     # Search in files
 

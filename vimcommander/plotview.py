@@ -1,16 +1,20 @@
-"""Quick view of a CSV file as a plot (zp): every numeric column in its own strip,
-over one x axis (a rising column such as time, else the row number).
+"""Quick view of a CSV file (zp) or an LTspice .raw file as a plot: every numeric
+column in its own strip, over one x axis (a rising column such as time, else the
+row number).
 
 The mouse shows each column's value at that point. Drag across the plot to zoom
 into that part, right-click to zoom back out, double-click to see it all. Each
 strip gives min, max, mean and RMS of the part in view. Long columns are drawn
-as one min-max bar per pixel. Reading runs in a thread; results carry a token,
-so a stale one is dropped.
+as one min-max bar per pixel. Clicking a column's name plots the others against
+it: as lines if it rises, else as a scatter of points (an optimization's designs,
+efficiency against frequency); clicking the x label at the bottom left goes back.
+Reading runs in a thread; results carry a token, so a stale one is dropped.
 """
 
 import bisect
 import math
 import threading
+from array import array
 
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPalette, QPen, QPolygonF
@@ -21,6 +25,7 @@ from .tabular import si
 
 TRACE_COLORS = ("folder", "code", "image", "video", "audio", "document", "archive", "design")
 STRIP_MIN = 60  # pixels per column; with more columns than fit, the plot scrolls
+SCATTER_POINTS = 40000  # points drawn per strip in a scatter (statistics use every row)
 
 
 class _Loader(QObject):
@@ -38,6 +43,9 @@ class PlotView(QWidget):
         super().__init__()
         self.setMouseTracking(True)
         self.data: tabular.Columns | None = None
+        self.x: int | None = None  # the column on the x axis; None = the row number
+        self.scatter = False  # that column doesn't rise: points, not lines
+        self._labels: list[tuple[QRectF, int | None]] = []  # clickable names: strips, and the x label (None)
         self.message = ""
         self.token = 0
         self.span = (0.0, 1.0)  # the x range in view
@@ -54,8 +62,10 @@ class PlotView(QWidget):
 
     # Loading
 
-    def load(self, path: str, source: str | bytes) -> None:
-        """Read `source` (the file's path, or its bytes from a zip) in a thread."""
+    def load(self, path: str, source: str | bytes, reader=None) -> None:
+        """Read `source` (the file's path, or its bytes from a zip) in a thread with
+        `reader` (tabular.read_columns, or ltspice.read_raw)."""
+        reader = reader or tabular.read_columns
         self.stop()
         token, stop = self.token, self._stop
         self.message, self._file = "Reading the numbers…", path
@@ -63,7 +73,7 @@ class PlotView(QWidget):
 
         def work():
             try:
-                result, error = tabular.read_columns(source, path, stop), ""
+                result, error = reader(source, path, stop), ""
             except Exception as e:  # always answer, or the view would say "Reading…" for good
                 result, error = None, str(getattr(e, "strerror", None) or e) or type(e).__name__
             self._loader.done.emit(token, result, error)
@@ -90,19 +100,26 @@ class PlotView(QWidget):
                 self.not_numeric.emit(self._file)
             return
         self.data, self.message = result, ""
-        self.span = self._full()
+        self.set_x(result.x)
+
+    def set_x(self, column: int | None) -> None:
+        """Plot the other columns against `column` (None: the row number)."""
+        d = self.data
+        self.x = column
+        self.scatter = column is not None and (d.gaps[column] or not tabular._rising(d.values[column]))
+        self.zooms, self.span, self._made_for = [], self._full(), None
         self.setMinimumHeight(int(len(self._strips()) * STRIP_MIN + self._axis_height()))
-        x = "row number" if result.x is None else self._name(result.x)
-        part = "" if result.complete else "   first part"
-        self.summary.emit(f"{result.rows} rows × {len(result.names)} columns   x: {x}{part}"
-                          "   (drag = zoom, right-click = back, zp = table)")
+        x = "row number" if column is None else self._name(column) + ("  (scatter)" if self.scatter else "")
+        part = "" if d.complete else "   first part"
+        self.summary.emit(f"{d.rows} rows × {len(d.names)} columns   x: {x}{part}"
+                          "   (drag = zoom, right-click = back, click a name = plot against it)")
         self.update()
 
     # Data helpers
 
     def _strips(self) -> list[int]:
         d = self.data
-        return [k for k in range(len(d.names)) if k != d.x] if d else []
+        return [k for k in range(len(d.names)) if k != self.x] if d else []
 
     def _name(self, k: int) -> str:
         d = self.data
@@ -110,21 +127,25 @@ class PlotView(QWidget):
 
     def _full(self) -> tuple[float, float]:
         d = self.data
-        if d.x is None:
+        if self.x is None:
             return 0.0, float(d.rows - 1)
-        xs = d.values[d.x]
-        return xs[0], xs[-1]
+        xs = d.values[self.x]
+        if not self.scatter:
+            return xs[0], xs[-1]
+        finite = [v for v in xs if v == v]
+        lo, hi = (min(finite), max(finite)) if finite else (0.0, 1.0)
+        return (lo, hi) if hi > lo else (lo - 1, hi + 1)
 
     def _index(self, x: float, after: bool = False) -> int:
         """The first sample at x or later (after: later than x)."""
         d = self.data
-        if d.x is None:
+        if self.x is None:
             return min(d.rows, max(0, math.floor(x) + 1 if after else math.ceil(x)))
-        return (bisect.bisect_right if after else bisect.bisect_left)(d.values[d.x], x)
+        return (bisect.bisect_right if after else bisect.bisect_left)(d.values[self.x], x)
 
     def _x_of(self, i: int) -> float:
         d = self.data
-        return float(i) if d.x is None else d.values[d.x][i]
+        return float(i) if self.x is None else d.values[self.x][i]
 
     def _nearest(self, x: float) -> int:
         i = min(self._index(x), self.data.rows - 1)
@@ -173,6 +194,9 @@ class PlotView(QWidget):
         if self._made_for == (self.span, width):
             return
         self._made_for = (self.span, width)
+        if self.scatter:
+            self._make_scatter(area)
+            return
         x0, x1 = self.span
         step = (x1 - x0) / width
         bounds = [self._index(x0 + p * step) for p in range(width)] + [self._index(x1, after=True)]
@@ -212,6 +236,22 @@ class PlotView(QWidget):
             self._traces.append(lines)
             self._stats.append(tabular.stats(col, lo, hi, gaps))
 
+    def _make_scatter(self, area: QRectF) -> None:
+        """Points (x, value) of the rows whose x is in view: at most SCATTER_POINTS
+        drawn, every one counted in the statistics."""
+        d, (x0, x1) = self.data, self.span
+        xs = d.values[self.x]
+        rows = [i for i, v in enumerate(xs) if x0 <= v <= x1]  # NaN is never in range
+        shown = rows[::max(1, len(rows) // SCATTER_POINTS)]
+        scale = area.width() / (x1 - x0)
+        pixels = [area.left() + (xs[i] - x0) * scale for i in shown]
+        self._traces, self._stats = [], []
+        for k in self._strips():
+            col = d.values[k]
+            self._traces.append([[(px, col[i]) for px, i in zip(pixels, shown) if col[i] == col[i]]])
+            values = array("d", [col[i] for i in rows])
+            self._stats.append(tabular.stats(values, 0, len(values), d.gaps[k]))
+
     # Painting
 
     def paintEvent(self, event):
@@ -246,8 +286,9 @@ class PlotView(QWidget):
             p.drawText(QRectF(min(max(x - w / 2, 2), self.width() - w - 2), axis_y, w + 1,
                               small_metrics.height()), Qt.AlignmentFlag.AlignLeft, label)
 
-        cursor = self._nearest(self._x_at(self.mouse)) if self.mouse is not None else None
+        cursor = self._nearest(self._x_at(self.mouse)) if self.mouse is not None and not self.scatter else None
         strips = self._strips()
+        self._labels = []
         for s, k in enumerate(strips):
             color = QColor(graphview.COLORS.get(TRACE_COLORS[s % len(TRACE_COLORS)], "#7aa2f7"))
             label_rect, rect = self._plot_rect(s, len(strips))
@@ -258,6 +299,7 @@ class PlotView(QWidget):
             p.setPen(color)
             p.drawText(label_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, name)
             used = QFontMetricsF(bold).horizontalAdvance(name) + 12
+            self._labels.append((QRectF(label_rect.left(), label_rect.top(), used - 6, label_rect.height()), k))
             p.setFont(font)
             if cursor is not None:
                 value = f"= {si(self.data.values[k][cursor])}"
@@ -297,9 +339,13 @@ class PlotView(QWidget):
                 p.drawLine(QPointF(rect.left(), y_of(0)), QPointF(rect.right(), y_of(0)))
             p.setClipRect(rect.adjusted(-1, -2, 1, 2))
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
-            p.setPen(QPen(color, 1.2))
+            p.setPen(QPen(color, 2.5 if self.scatter else 1.2))
             for line in self._traces[s] if s < len(self._traces) else []:
-                p.drawPolyline(QPolygonF([QPointF(x, y_of(v)) for x, v in line]))
+                points = QPolygonF([QPointF(x, y_of(v)) for x, v in line])
+                if self.scatter:
+                    p.drawPoints(points)
+                else:
+                    p.drawPolyline(points)
             p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
             p.setClipping(False)
 
@@ -308,12 +354,21 @@ class PlotView(QWidget):
             band = QColor(pal.color(QPalette.ColorRole.Highlight))
             band.setAlpha(60)
             p.fillRect(QRectF(a, area.top(), b - a, area.height()), band)
-        if self.mouse is not None and cursor is not None:
+        # the x axis' column, at the bottom left: click it to go back to the file's own x
+        x_name = "x: " + ("row" if self.x is None else self.data.names[self.x])
+        x_rect = QRectF(2, axis_y, area.left() - 6, small_metrics.height())
+        p.setFont(small)
+        p.setPen(text if self.x != self.data.x else dim)
+        p.drawText(x_rect, Qt.AlignmentFlag.AlignLeft,
+                   small_metrics.elidedText(x_name, Qt.TextElideMode.ElideRight, x_rect.width()))
+        self._labels.append((x_rect, None))
+        if self.mouse is not None and (cursor is not None or self.scatter):
             line = QColor(text)
             line.setAlpha(120)
             p.setPen(QPen(line, 1))
             p.drawLine(QPointF(self.mouse, area.top()), QPointF(self.mouse, area.bottom()))
-            label = si(self._x_of(cursor), max(digits + 1, 4))
+            x_value = self._x_at(self.mouse) if self.scatter else self._x_of(cursor)
+            label = si(x_value, max(digits + 1, 4))
             w = small_metrics.horizontalAdvance(label) + 10
             box = QRectF(min(max(self.mouse - w / 2, 0), self.width() - w), axis_y - 2, w,
                          small_metrics.height() + 4)
@@ -345,6 +400,11 @@ class PlotView(QWidget):
         if not self.data:
             return
         x, area = event.position().x(), self._area()
+        if event.button() == Qt.MouseButton.LeftButton:
+            for rect, column in self._labels:  # a column's name: plot the others against it
+                if rect.contains(event.position()):
+                    self.set_x(self.data.x if column is None else column)
+                    return
         if event.button() == Qt.MouseButton.LeftButton and area.left() <= x <= area.right():
             self.drag = (x, x)
         elif event.button() == Qt.MouseButton.RightButton:
@@ -365,7 +425,12 @@ class PlotView(QWidget):
             self.update()
 
     def zoom_to(self, x0: float, x1: float) -> None:
-        if not self.data or self._index(x1, after=True) - self._index(x0) < 2:
+        if not self.data:
+            return
+        if self.scatter:
+            if sum(1 for v in self.data.values[self.x] if x0 <= v <= x1) < 2:
+                return
+        elif self._index(x1, after=True) - self._index(x0) < 2:
             return  # fewer than two samples there: nothing to draw a line through
         self.zooms.append(self.span)
         self.span = (x0, x1)

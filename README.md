@@ -319,7 +319,7 @@ Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 
 | Command | Action |
 |---|---|
-| `:find PATTERN` | search the names in this folder and all subfolders, `*.log` or plain text to match part of a name; the pane shows the matches as a [result list](#result-lists) (`Esc` stops a long search) |
+| `:find PATTERN [CONDITIONS]` | search the names in this folder and all subfolders, `*.log` or plain text to match part of a name; the pane shows the matches as a [result list](#result-lists) (`Esc` stops a long search). Conditions: `size>1M`, `size<500k` (units `k`, `m`, `g`; files only), `newer:7d`, `older:2w` (changed within / before: `h`, `d`, `w`, `y`), `type:f` / `type:d` (files / folders). The pattern may be left out: `:find size>500M older:1y` |
 | `:grep [TEXT]` | [search inside the files](#search-in-files) below this folder (same as `g/`) |
 | `:results`, `:res` | show the pane's last [result list](#result-lists) again |
 | `:branch` | branch view, same as `gb` |
@@ -693,6 +693,7 @@ Programs start in the active pane's folder. On the first run the bar is filled w
 | CSV / TSV | a table with the row and column count; hover a column header for min, max, mean or distinct values. `zp` shows a [plot](#csv-plot) instead |
 | Jupyter notebook (`.ipynb`) | its cells, outputs and plots: code shaded, outputs indented below |
 | STM32CubeMX project (`.ioc`) | the chip, clocks, a pin table with labels and modes, the peripheral settings you changed, DMA and interrupts |
+| LTspice result (`.raw`) | its traces as a [plot](#csv-plot); an operating point as a table |
 | linker `.map`, `.elf` | the [firmware memory map](#firmware-memory-map) |
 | binary file | a hex dump (`:hex` shows every file that way) |
 
@@ -705,9 +706,12 @@ Files inside zips show too; on SSH and FTP servers, text and images.
 - **Names and units** come from the header row. Rows above the numbers that aren't a header, such as a scope's settings (Siglent, Rigol) or a title line, are skipped, and a second header row is taken as the units (`CH1 [Volt]`). Columns of text are left out; empty cells are gaps in the line.
 - **Mouse**: the value of each column under the mouse shows next to its name, and the x value under the axis. Drag across the plot to zoom into that part, right-click to zoom back out, double-click to see it all.
 - **Statistics**: each strip shows min, max, mean and RMS of the part in view.
+- **Any column as the x axis**: click a column's name to plot the others against it; `x: NAME` at the bottom left shows which, and a click on it goes back to time (or the row number). A column that rises is drawn as lines; any other as a **scatter** of points, e.g. an optimization's designs: efficiency, power and voltage against frequency. A scatter draws up to 40,000 points per strip; the statistics count every row in view.
 - **Big files** are read in the background, up to 16 million numbers (a 700,000-row, 6-column file takes about two seconds). Long columns are drawn as one min–max bar per pixel, so short spikes still show.
 
 Semicolon-separated files with decimal commas work; the file is read as UTF-8. CSV files inside zips can be plotted, files on SSH and FTP servers show as tables only.
+
+**LTspice results** (`.raw`) always show as this plot, without `zp`: every trace with its unit (`V(out) [V]`, `I(L1) [A]`) over time. Transient runs in LTspice's binary or text format work, with float or double values and the "fastaccess" layout; an AC analysis shows each trace's magnitude in dB over frequency; an operating point (`.op.raw`) shows as a table of values. A stepped run is plotted over the row number. Another program's `.raw` file (a camera image) shows in hex.
 
 ### Firmware memory map
 

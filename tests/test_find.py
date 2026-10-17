@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 import unittest
 import zipfile
 
@@ -38,6 +39,28 @@ class FindTest(unittest.TestCase):
         self.assertEqual(self.rel(found), ["c/readme.md"])
         found = [p for batch in find_paths(self.root, "*.txt", show_hidden=True) for p in batch]
         self.assertEqual(self.rel(found), [".hidden.txt", "a/b/Deep.TXT", "a/notes.txt"])  # not .git
+
+    def test_find_conditions(self):
+        from vimcommander.results import parse_find
+        now = time.time()
+        big = os.path.join(self.root, "a", "big.bin")
+        write(big, b"x" * 5000)
+        os.utime(os.path.join(self.root, "a", "notes.txt"), (now - 30 * 86400,) * 2)
+        pattern, cond = parse_find("*.txt older:7d", now)
+        found = [p for batch in find_paths(self.root, pattern, conditions=cond) for p in batch]
+        self.assertEqual(self.rel(found), ["a/notes.txt"])
+        pattern, cond = parse_find("size>4k", now)
+        self.assertEqual(pattern, "")
+        found = [p for batch in find_paths(self.root, pattern, conditions=cond) for p in batch]
+        self.assertEqual(self.rel(found), ["a/big.bin"])
+        _, cond = parse_find("type:d", now)
+        found = [p for batch in find_paths(self.root, "", conditions=cond) for p in batch]
+        self.assertEqual(self.rel(found), ["a", "a/b", "c"])
+        _, cond = parse_find("size<1k newer:1d", now)
+        self.assertEqual((cond.max_size, cond.newer), (1024, now - 86400))
+        self.assertEqual(parse_find("report", now), ("report", None))
+        with self.assertRaises(ValueError):
+            parse_find("size>lots", now)
 
     def test_grep(self):
         regex = grep.compile_pattern("todo")  # smartcase: lower case ignores case

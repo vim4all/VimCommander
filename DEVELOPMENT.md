@@ -15,7 +15,8 @@ vimcommander/
   results.py             result lists: the :find search, searches in a thread
   preview.py             quick view
   tabular.py             CSV parsing: the table, and every numeric column for the plot (pure Python)
-  plotview.py            the CSV plot (zp): strips, min-max bars per pixel, hover, zoom
+  plotview.py            the plot (zp, .raw): strips, min-max bars per pixel, scatter, hover, zoom
+  ltspice.py             LTspice .raw waveforms: binary / text, real / AC, operating points (pure Python)
   notebook.py            Jupyter notebooks as Markdown and images, for quick view (pure Python)
   cubemx.py              STM32CubeMX .ioc projects: chip, clocks, pins, peripherals (pure Python)
   archive.py             zip files as read-only folders (pure Python)
@@ -68,6 +69,7 @@ tests/
   test_graph.py          graph scanning, sizes, layouts, note links and code imports
   test_find.py           :find, :grep, zip, text diff, PDF merge and page extraction
   test_tabular.py        CSV tables, the plot's columns, number labels
+  test_ltspice.py        LTspice .raw formats
   test_preview.py        natural sort, notebooks, .ioc projects, the quick view's plot
   test_memmap.py         GNU ld / Keil map and ELF parsing
   test_termpane.py       WSL paths, shells, OSC 7, cd lines, sshfs, the terminal screen

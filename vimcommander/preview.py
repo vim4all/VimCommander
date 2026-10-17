@@ -6,6 +6,7 @@ files show a short summary. Markdown is rendered (Obsidian links work), CSV / TS
 Jupyter notebooks show their cells and outputs, STM32CubeMX projects their pins and clocks.
 """
 
+import html
 import os
 import queue
 import threading
@@ -17,7 +18,7 @@ from PySide6.QtGui import (QDesktopServices, QFontDatabase, QImage, QImageReader
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QLabel, QPlainTextEdit, QScrollArea, QSizePolicy,
                                QStackedWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
-from . import archive, cubemx, graphview, mdnotes, memmap, notebook, pdftools, remote, tabular
+from . import archive, cubemx, graphview, ltspice, mdnotes, memmap, notebook, pdftools, remote, tabular
 from .memmapview import MemMapView
 from .plotview import PlotView
 
@@ -483,6 +484,8 @@ class QuickView(QWidget):
             elif memmap.is_candidate(path) and not in_archive:
                 self.stack.setCurrentWidget(self.memmap)
                 self.memmap.load(path)  # not a linker map / ELF after all: _not_a_map shows text
+            elif ltspice.is_raw(path):
+                self._raw(path, in_archive)  # not LTspice after all: _not_numeric shows hex
             elif PLOT["on"] and tabular.is_table(path):
                 self._plot(path, in_archive)  # no numbers in it after all: _not_numeric shows the table
             elif notebook.is_notebook(path):
@@ -514,7 +517,38 @@ class QuickView(QWidget):
         self.stack.setCurrentWidget(self.plot_area)
         self.plot.load(path, source)
 
+    def _raw(self, path: str, in_archive: bool) -> None:
+        """An LTspice .raw file: its traces as a plot (an operating point as a table)."""
+        source = archive.read(path, ARCHIVE_PLOT_LIMIT) if in_archive else path
+        self.stack.setCurrentWidget(self.plot_area)
+        self.plot.load(path, source, ltspice.read_raw)
+
+    def _operating_point(self, path: str) -> bool:
+        """An LTspice .op result (one point): its values as a table."""
+        in_archive = archive.inside(path) is not None
+        if in_archive:
+            data = archive.read(path, TEXT_LIMIT)
+        else:
+            with open(path, "rb") as f:
+                data = f.read(TEXT_LIMIT)
+        values = ltspice.operating_point(data)
+        if not values:
+            return False
+        rows = "".join(f"<tr><td><b>{html.escape(name)}</b></td><td align='right'>{tabular.si(v)}</td>"
+                       f"<td>{unit}</td></tr>" for name, v, unit in values)
+        self.title.setText(f"{os.path.basename(path)}   operating point, {len(values)} values")
+        self.markdown.show_html(f"<table cellspacing='0' cellpadding='3'>{rows}</table>")
+        self.stack.setCurrentWidget(self.markdown)
+        return True
+
     def _not_numeric(self, path: str) -> None:
+        if path == self.current and ltspice.is_raw(path):
+            try:
+                if not self._operating_point(path):
+                    self._text_or_info(path, archive.inside(path) is not None)  # another program's .raw
+            except OSError as e:
+                self._info(f"Cannot read this file: {e.strerror or e}")
+            return
         if path == self.current:
             try:
                 self._text_or_info(path, archive.inside(path) is not None)

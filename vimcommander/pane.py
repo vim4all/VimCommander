@@ -867,6 +867,7 @@ class Pane(QWidget):
         self.last_jump: tuple[str, str] | None = None  # (folder, name) before the last jump ('')
         self.results: Results | None = None  # a result list shown instead of the folder
         self.last_results: Results | None = None  # for :results
+        self.other_folder = None  # set by the main window: returns the other pane's folder
         self.result_history: list[Results] = []  # the last 10 lists, for :colder / :cnewer
         self.branch = ""  # git branch of this folder, shown in the header
         self.linked = False  # :linkpanes is on (shown in the header)
@@ -1136,7 +1137,7 @@ class Pane(QWidget):
         menu = QMenu(self)
         current = QStorageInfo(self.path).rootPath()
         for v in volumes():
-            act = menu.addAction(volume_label(v), lambda root=v.rootPath(): self._go_drive(root))
+            act = menu.addAction(volume_label(v), lambda root=v.rootPath(): self._go_drive(self.drive_folder(root)))
             act.setCheckable(True)
             act.setChecked(v.rootPath() == current)
         home = os.path.expanduser("~")
@@ -1148,6 +1149,15 @@ class Pane(QWidget):
                 menu.addAction(f"{name}   (WSL)", lambda name=name: self._go_drive(
                     wsl.home(name) if os.path.isdir(wsl.home(name)) else f"\\\\wsl.localhost\\{name}"))
         menu.exec(self.drive_button.mapToGlobal(self.drive_button.rect().bottomLeft()))
+
+    def drive_folder(self, root: str) -> str:
+        """Where picking a drive goes: as in Total Commander, the other pane's folder
+        when that pane is on this drive, else the drive's root."""
+        other = self.other_folder() if self.other_folder else ""
+        if other and not remote.is_remote(other) and os.path.isdir(other) \
+                and QStorageInfo(other).rootPath() == root:
+            return other
+        return root
 
     def _go_drive(self, root: str) -> None:
         self.cd(root)

@@ -76,7 +76,7 @@ COMMANDS = {
     "edit": ("edit [FILE]", "open a file in the editor"),
     "files": ("files", "find files below this folder (fuzzy)"),
     "filter": ("filter [PATTERN]", "show only matching names"),
-    "find": ("find PATTERN", "search names below this folder, as a result list"),
+    "find": ("find [PATTERN] [size>1M] [newer:7d] [type:f]", "search names below this folder, as a result list; size, age and type conditions"),
     "ftp": ("ftp [user@]host[:port][/path] | close", "open a folder on an FTP server (ftps://host = over TLS)"),
     "global": ("g/PATTERN/[CMD]", "tag matching names and run CMD on them: d, d!, y, normal KEYS or a : command; "
                                   ":g! or :v = the others"),
