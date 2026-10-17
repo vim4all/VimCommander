@@ -80,6 +80,25 @@ def main() -> None:
     print(f"\nBuilt {OUT}")
 
 
+def winpty_programs() -> list[str]:
+    """PyInstaller arguments adding the programs pywinpty starts from its own folder:
+    OpenConsole.exe hosts the terminal pane's console (with the conpty.dll next to
+    it, the shell ends at once without it), winpty-agent.exe the fallback for old
+    Windows. PyInstaller collects a package's DLLs, but not its .exe files."""
+    if sys.platform != "win32":
+        return []
+    try:
+        import winpty
+    except ImportError:
+        return []
+    folder = os.path.dirname(winpty.__file__)
+    args = []
+    for name in ("OpenConsole.exe", "winpty-agent.exe"):
+        if os.path.exists(os.path.join(folder, name)):
+            args += ["--add-binary", os.path.join(folder, name) + os.pathsep + "winpty"]
+    return args
+
+
 def build(have_config: bool) -> None:
     from vimcommander import config
 
@@ -98,6 +117,7 @@ def build(have_config: bool) -> None:
         "--workpath", os.path.join(WORK, "pyinstaller"),
         "--specpath", WORK,
         *icon_args,
+        *winpty_programs(),
         os.path.join(ROOT, "main.py"),
     ], check=True)
 

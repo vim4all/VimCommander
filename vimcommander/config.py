@@ -51,6 +51,8 @@ DEFAULTS = {
         "git_conflict": "#ff4f8b",     # git: merge conflicts
         "git_ignored": "#808080",      # git: ignored by .gitignore
         "linked_missing": "#a056e0",   # :linkpanes: items the other pane lacks
+        "line_number": "",             # line numbers (:set number / relativenumber); "" = theme / system
+        "line_number_current": "",     # the cursor row's number
     },
     # Graph in the quick view of a folder: depth 1-3, node size by "size" or "count",
     # mode "tree" (folders), "sunburst" / "treemap" (disk usage), "timeline" (when each
@@ -58,6 +60,7 @@ DEFAULTS = {
     # and their links) or "code" (source files and their imports).
     "graph": {"enabled": True, "depth": 2, "size_by": "size", "mode": "tree", "max_nodes": 400},
     "show_hidden": False,
+    "natural_sort": True,  # numbers in names in counting order: file2 before file10 (:set nonatural)
     "git": True,  # color files by their git status and show the branch (needs git)
     "columns": False,  # Miller columns: parent folder | list | preview (:set columns)
     "thumbnail_size": 128,  # thumbnail grid (zi), 48-320; Ctrl+wheel changes it
@@ -71,6 +74,14 @@ DEFAULTS = {
     "number": False, "relativenumber": False,
     "ignorecase": True, "smartcase": True, "hlsearch": True, "wrapscan": True,
     "clipboard": "",  # "unnamedplus": plain y / p use the system clipboard
+    # vim's 'langmap': keys typed in another keyboard layout act as their US-layout keys
+    # ("cyrillic" = Ukrainian / Russian, so о = j and пп = gg); "" = off; or vim's format
+    # ("FROM;TO" or pairs, comma-separated), e.g. "cyrillic,õ[ü]" for the Estonian keys
+    "langmap": "cyrillic",
+    # The terminal pane (:vterm, Ctrl-w t): shell "" = programs.shell, else the system's
+    # ("wsl", "wsl:Ubuntu", "pwsh", "cmd", "bash" or a command line); follow = the shell
+    # and the file pane cd along with each other
+    "vterm": {"shell": "", "follow": True},
     "which_key_delay": 500,  # ms after a prefix key (g, z, ", Ctrl-w…) before the hints show; 0 = off
     "sort": "name",  # name | ext | size | time, "-size" = reverse
     "date_format": "%Y-%m-%d %H:%M",

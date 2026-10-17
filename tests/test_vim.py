@@ -1,6 +1,6 @@
 import unittest
 
-from vimcommander.vim import NORMAL, VISUAL, KeyEngine
+from vimcommander.vim import NORMAL, VISUAL, KeyEngine, parse_langmap
 
 
 def feed(engine, *keys):
@@ -128,3 +128,39 @@ class KeyEngineTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LangmapTest(unittest.TestCase):
+    def engine(self, spec="cyrillic"):
+        e = KeyEngine()
+        e.langmap = parse_langmap(spec)
+        return e
+
+    def test_cyrillic_keys_act_as_latin(self):
+        e = self.engine()
+        [a] = feed(e, "3", "о")
+        self.assertEqual((a.name, a.count), ("down", 3))
+        [a] = feed(e, "п", "п")
+        self.assertEqual(a.name, "first")
+        [a] = feed(e, "<C-в>")
+        self.assertEqual(a.name, "half_down")
+
+    def test_marks_translate_but_find_char_does_not(self):
+        e = self.engine()
+        [a] = feed(e, "ь", "ф")  # m a
+        self.assertEqual((a.name, a.arg), ("set_mark", "a"))
+        [a] = feed(e, "а", "с")  # f, then a Cyrillic с to find
+        self.assertEqual((a.name, a.arg), ("find_char", "с"))
+
+    def test_latin_untouched_and_off(self):
+        [a] = feed(self.engine(), ".")
+        self.assertEqual(a.name, "repeat")
+        self.assertEqual(feed(self.engine(""), "о"), [])
+
+    def test_vim_format(self):
+        self.assertEqual(parse_langmap("õ[ü]"), {"õ": "[", "ü": "]"})
+        self.assertEqual(parse_langmap("аб;f\;"), {"а": "f", "б": ";"})
+        self.assertEqual(parse_langmap("cyrillic,ж:")["ж"], ":")
+        for bad in ("аб;f", "ab;cd", "абв"):
+            with self.assertRaises(ValueError):
+                parse_langmap(bad)

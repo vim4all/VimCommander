@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QFileIconProvide
                                QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
                                QTableView, QTabBar, QToolButton, QVBoxLayout, QWidget)
 
-from . import archive, remote
+from . import archive, remote, wsl
 from .grid import GridDelegate, ThumbLoader
 from .preview import QuickView
 
@@ -82,6 +82,7 @@ def set_colors(options: dict, theme: dict[str, str] | None = None) -> list[str]:
         "git_modified": QColor("#d98e04"), "git_new": QColor("#2ea043"),
         "git_conflict": QColor("#ff4f8b"), "git_ignored": QColor(128, 128, 128),
         "linked_missing": QColor("#a056e0"),
+        "line_number": palette.color(QPalette.ColorRole.PlaceholderText), "line_number_current": highlight,
     }
     bad = []
     for key, default in defaults.items():
@@ -106,6 +107,7 @@ class Results:
     paths: list[str]
     notes: dict[str, str] = field(default_factory=dict)  # path -> shown after the name
     groups: dict[str, int] = field(default_factory=dict)  # path -> duplicate set number
+    index: int = -1  # the item ]q / [q / gf last went to
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -146,8 +148,24 @@ def human_size(n: int) -> str:
     return ""
 
 
+_DIGITS = re.compile(r"(\d+)")
+NATURAL = {"on": True}  # natural_sort in the config: file2 before file10
+
+
+def natural_key(text: str) -> tuple:
+    """Names in counting order: runs of digits compare as numbers, so test2
+    comes before test10, as in Explorer. Equal keys ("a01", "a1") fall back to the name."""
+    parts: list = _DIGITS.split(text.casefold())  # text, digits, text, …: str and int never meet
+    parts[1::2] = [int(p) for p in parts[1::2]]
+    return tuple(parts), text
+
+
+def name_key(text: str):
+    return natural_key(text) if NATURAL["on"] else text.casefold()
+
+
 SORT_KEYS = {
-    "name": lambda e: (e.shown or e.name).casefold(),
+    "name": lambda e: name_key(e.shown or e.name),
     "ext": lambda e: os.path.splitext(e.name)[1].casefold(),
     "size": lambda e: e.size,
     "time": lambda e: e.mtime,
@@ -178,6 +196,8 @@ class DirModel(QAbstractTableModel):
         self._icon_cache = {}
         self._bold = QFont()
         self._bold.setBold(True)
+        self.number_font = self.number_bold = QFont()
+        self.set_number_font(QFont())
 
     def load(self, path: str) -> None:
         """List a directory, or a folder in an archive. Raises OSError if it cannot be read."""
@@ -257,6 +277,15 @@ class DirModel(QAbstractTableModel):
     def set_font(self, font: QFont) -> None:
         self._bold = QFont(font)
         self._bold.setBold(True)
+        self.set_number_font(font)
+
+    def set_number_font(self, font: QFont) -> None:
+        """Line numbers are a bit smaller than the names, like a quiet gutter."""
+        self.number_font = QFont(font)
+        if font.pointSizeF() > 0:
+            self.number_font.setPointSizeF(max(6.0, font.pointSizeF() * 0.82))
+        self.number_bold = QFont(self.number_font)
+        self.number_bold.setBold(True)
 
     def row_of(self, name: str) -> int:
         for i, e in enumerate(self.entries):
@@ -273,6 +302,12 @@ class DirModel(QAbstractTableModel):
         return 0 if parent.isValid() else len(self.COLUMNS)
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if orientation == Qt.Orientation.Vertical and role in (Qt.ItemDataRole.ForegroundRole,
+                                                                Qt.ItemDataRole.FontRole):
+            current = section == self.cursor_row  # vim's CursorLineNr
+            if role == Qt.ItemDataRole.FontRole:
+                return self.number_bold if current else self.number_font
+            return COLORS["line_number_current" if current else "line_number"]
         if role != Qt.ItemDataRole.DisplayRole:
             return None
         if orientation == Qt.Orientation.Horizontal:
@@ -582,13 +617,25 @@ class FileView(ViewBehavior, QTableView):
         self.verticalHeader().setFont(font)
         self.verticalHeader().setDefaultSectionSize(QFontMetrics(font).height() + 6)
         self.fit_columns()
+        self.fit_gutter()
 
     def set_numbers(self, number: bool, relative: bool) -> None:
         model = self.model()
         model.number, model.relative = number, relative
         self.verticalHeader().setVisible(number or relative)
         model.cursor_row = self.currentIndex().row()
+        self.fit_gutter()
         model.refresh_numbers()
+
+    def fit_gutter(self) -> None:
+        """A fixed gutter width, room for 3 digits (more only for longer lists),
+        so the list doesn't shift when a number grows from 9 to 10 or 99 to 100."""
+        model = self.model()
+        if model is None:
+            return
+        digits = max(3, len(str(len(model.entries))))
+        fm = QFontMetrics(model.number_bold)
+        self.verticalHeader().setFixedWidth(fm.horizontalAdvance("9" * digits) + 12)
 
     def setup_header(self):
         header = self.horizontalHeader()
@@ -634,6 +681,10 @@ class FileView(ViewBehavior, QTableView):
         model.cursor_row = current.row()
         if model.relative:
             model.refresh_numbers()
+        elif model.number and model.entries:  # only the highlighted number moves
+            rows = [r for r in (previous.row(), current.row()) if 0 <= r < len(model.entries)]
+            if rows:
+                model.headerDataChanged.emit(Qt.Orientation.Vertical, min(rows), max(rows))
         self.viewport().update()
         self.cursor_moved.emit()
 
@@ -779,7 +830,7 @@ class ColumnList(QListWidget):
             self.addItem(f"({e.strerror or e})")
             return
         items = [(n, d) for n, d in items if show_hidden or not n.startswith(".")]
-        items.sort(key=lambda x: (not x[1], x[0].casefold()))
+        items.sort(key=lambda x: (not x[1], name_key(x[0])))
         bold = QFont(self.font())
         bold.setBold(True)
         for name, is_dir in items[:self.LIMIT]:
@@ -816,6 +867,7 @@ class Pane(QWidget):
         self.last_jump: tuple[str, str] | None = None  # (folder, name) before the last jump ('')
         self.results: Results | None = None  # a result list shown instead of the folder
         self.last_results: Results | None = None  # for :results
+        self.result_history: list[Results] = []  # the last 10 lists, for :colder / :cnewer
         self.branch = ""  # git branch of this folder, shown in the header
         self.linked = False  # :linkpanes is on (shown in the header)
         self.columns = False  # Miller columns: parent | list | preview
@@ -857,6 +909,7 @@ class Pane(QWidget):
 
         self.view = FileView(self)
         self.view.setModel(self.model)
+        self.model.modelReset.connect(self.view.fit_gutter)  # a folder of 1000+ needs a 4th digit
         self.view.setup_header()
         self.view.doubleClicked.connect(lambda _: self.window().run_action("open"))
         self.grid = GridView(self, thumbs())
@@ -865,6 +918,7 @@ class Pane(QWidget):
         self.grid.doubleClicked.connect(lambda _: self.window().run_action("open"))
         self.grid_mode = False
         self.preview = QuickView()
+        self.term = None  # a termview.TermView while the pane shows a terminal (:vterm)
         self.stack = QStackedWidget()
         self.stack.addWidget(self.view)
         self.stack.addWidget(self.grid)
@@ -979,6 +1033,8 @@ class Pane(QWidget):
         if not self.results:
             self.model.filter, self.model.filter_text = None, ""
         self.results = self.last_results = results
+        if not any(r is results for r in self.result_history):
+            self.result_history = self.result_history[-9:] + [results]
         self.archive = self.remote = None
         self.path = results.root
         self.model.git, self.branch = {}, ""
@@ -1086,6 +1142,11 @@ class Pane(QWidget):
         home = os.path.expanduser("~")
         menu.addSeparator()
         menu.addAction(f"Home   {home}", lambda: self._go_drive(home))
+        if distros := wsl.distros():  # WSL's files, as \\wsl.localhost\NAME
+            menu.addSeparator()
+            for name in distros:
+                menu.addAction(f"{name}   (WSL)", lambda name=name: self._go_drive(
+                    wsl.home(name) if os.path.isdir(wsl.home(name)) else f"\\\\wsl.localhost\\{name}"))
         menu.exec(self.drive_button.mapToGlobal(self.drive_button.rect().bottomLeft()))
 
     def _go_drive(self, root: str) -> None:
@@ -1264,7 +1325,7 @@ class Pane(QWidget):
     def set_grid(self, on: bool) -> None:
         had_focus = self.view.hasFocus() or self.grid.hasFocus()
         self.grid_mode = on
-        if self.stack.currentWidget() is not self.preview:
+        if self.stack.currentWidget() not in (self.preview, self.term):
             self.stack.setCurrentWidget(self.list_view)
         # pane.view.setFocus() (used everywhere) reaches the grid while it is shown
         self.view.setFocusProxy(self.grid if on else None)
@@ -1287,9 +1348,31 @@ class Pane(QWidget):
         return top, bottom if bottom >= 0 else len(self.model.entries) - 1
 
     def show_preview(self, on: bool) -> None:
-        self.stack.setCurrentWidget(self.preview if on else self.list_view)
+        self.stack.setCurrentWidget(self.preview if on else (self.term or self.list_view))
         if not on:
             self.preview.clear()
+
+    # Terminal (:vterm)
+
+    @property
+    def shows_terminal(self) -> bool:
+        return self.term is not None and self.stack.currentWidget() is self.term
+
+    def show_terminal(self, term) -> None:
+        self.term = term
+        self.stack.addWidget(term)
+        self.stack.setCurrentWidget(term)
+        self.header_box.hide()  # the terminal's folder is the other pane's; its title says which shell
+
+    def close_terminal(self) -> None:
+        term, self.term = self.term, None
+        if term is None:
+            return
+        term.stop()
+        self.stack.removeWidget(term)
+        term.deleteLater()
+        self.header_box.show()
+        self.stack.setCurrentWidget(self.list_view)
 
     def _history_step(self, from_stack: list[str], to_stack: list[str]) -> bool:
         while from_stack:
@@ -1450,7 +1533,7 @@ class Pane(QWidget):
             self.header.setStyleSheet(
                 f"background: {css(background) if background else 'palette(highlight)'};"
                 f"color: {css(text) if text else 'palette(highlighted-text)'};"
-                "padding: 3px 6px; font-weight: bold;")
+                "padding: 3px 6px; font-weight: bold; border-radius: 4px;")
         else:
             self.header.setStyleSheet("padding: 3px 6px;")
         self.view.viewport().update()

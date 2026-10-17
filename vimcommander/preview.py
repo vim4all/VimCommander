@@ -1,8 +1,9 @@
 """Quick view (Ctrl-q): shows the file under the cursor in the other pane.
 
 Text files show their first part, images are scaled to fit, folders and other
-files show a short summary. Markdown is rendered (Obsidian links work), CSV / TSV files show as a table, PDFs
-show their first pages, rendered by PDFium (pypdfium2) on a worker thread.
+files show a short summary. Markdown is rendered (Obsidian links work), CSV / TSV files show as a table
+(or a plot, zp), PDFs show their first pages, rendered by PDFium (pypdfium2) on a worker thread.
+Jupyter notebooks show their cells and outputs, STM32CubeMX projects their pins and clocks.
 """
 
 import os
@@ -11,11 +12,14 @@ import threading
 from datetime import datetime
 
 from PySide6.QtCore import QByteArray, QObject, QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QFontDatabase, QImage, QImageReader, QPixmap, QTextDocument
+from PySide6.QtGui import (QDesktopServices, QFontDatabase, QImage, QImageReader, QPalette, QPixmap, QTextCursor,
+                           QTextDocument, QTextFormat)
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QLabel, QPlainTextEdit, QScrollArea, QSizePolicy,
                                QStackedWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
-from . import archive, graphview, mdnotes, remote, tabular
+from . import archive, cubemx, graphview, mdnotes, memmap, notebook, pdftools, remote, tabular
+from .memmapview import MemMapView
+from .plotview import PlotView
 
 TEXT_LIMIT = 256 * 1024
 IMAGE_LIMIT = 64 * 1024 * 1024
@@ -23,6 +27,9 @@ PDF_LIMIT = 256 * 1024 * 1024  # bigger PDFs inside a zip are not previewed
 PDF_PAGES = 30  # pages rendered in the preview
 HEX_LIMIT = 64 * 1024  # bytes shown in the hex view
 HEX = {"on": False}  # :hex: every file in hex, not only binary ones
+PLOT = {"on": False}  # zp: CSV files as a plot instead of a table
+ARCHIVE_PLOT_LIMIT = 256 * 1024 * 1024  # a CSV inside a zip is read up to this for a plot
+NOTEBOOK_LIMIT = 64 * 1024 * 1024  # bigger notebooks show as text
 
 
 def hexdump(data: bytes, offset: int = 0) -> str:
@@ -134,27 +141,31 @@ class PdfRenderer(QObject):
                 self.failed.emit(token, "PDF preview needs pypdfium2 (pip install pypdfium2)")
                 continue
             try:
-                pdf = pdfium.PdfDocument(source)
+                with pdftools.LOCK:
+                    pdf = pdfium.PdfDocument(source)
             except Exception as e:  # PdfiumError: damaged, encrypted…
                 self.failed.emit(token, f"Cannot read this PDF: {e}")
                 continue
             try:
-                count = len(pdf)
+                with pdftools.LOCK:
+                    count = len(pdf)
                 for i in range(min(count, PDF_PAGES)):
                     if token != self.token:
                         break
-                    page = pdf[i]
-                    scale = width / max(page.get_width(), 1)
-                    bitmap = page.render(scale=scale, rev_byteorder=True)
-                    fmt = (QImage.Format.Format_RGBA8888 if bitmap.n_channels == 4
-                           else QImage.Format.Format_RGB888)
-                    image = QImage(bytes(bitmap.buffer), bitmap.width, bitmap.height,
-                                   bitmap.stride, fmt).copy()
+                    with pdftools.LOCK:  # per page, so a :pdfmerge can run in between
+                        page = pdf[i]
+                        scale = width / max(page.get_width(), 1)
+                        bitmap = page.render(scale=scale, rev_byteorder=True)
+                        fmt = (QImage.Format.Format_RGBA8888 if bitmap.n_channels == 4
+                               else QImage.Format.Format_RGB888)
+                        image = QImage(bytes(bitmap.buffer), bitmap.width, bitmap.height,
+                                       bitmap.stride, fmt).copy()
                     self.page_ready.emit(token, i, count, image)
             except Exception as e:
                 self.failed.emit(token, f"Cannot render this PDF: {e}")
             finally:
-                pdf.close()
+                with pdftools.LOCK:
+                    pdf.close()
 
 
 _renderer: PdfRenderer | None = None
@@ -262,13 +273,43 @@ class MarkdownView(QTextBrowser):
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.document().setDocumentMargin(10)
         self.note: str | None = None  # local path, None for remote or zip notes
+        self.images: list[bytes] = []  # a notebook's images, nbimage:N in its text
         self.anchorClicked.connect(self._clicked)
 
     def show_note(self, text: str, note: str | None) -> None:
-        self.note = note
+        self.note, self.images = note, []
         base = QUrl.fromLocalFile(os.path.dirname(note) + "/") if note else QUrl()
         self.document().setBaseUrl(base)
         self.document().setMarkdown(mdnotes.prepare(text))
+        self.verticalScrollBar().setValue(0)
+
+    def show_notebook(self, nb: notebook.Notebook, path: str | None) -> None:
+        """A Jupyter notebook: code cells shaded, outputs indented below them."""
+        self.note, self.images = path, nb.images
+        self.document().setBaseUrl(QUrl.fromLocalFile(os.path.dirname(path) + "/") if path else QUrl())
+        self.document().setMarkdown(nb.markdown)
+        shade = self.palette().color(QPalette.ColorRole.AlternateBase)
+        cursor = QTextCursor(self.document())
+        cursor.beginEditBlock()
+        block = self.document().begin()
+        while block.isValid():
+            fmt = block.blockFormat()
+            if fmt.hasProperty(QTextFormat.Property.BlockCodeFence):
+                if fmt.stringProperty(QTextFormat.Property.BlockCodeLanguage) == "output":
+                    fmt.setLeftMargin(fmt.leftMargin() + 18)
+                else:
+                    fmt.setBackground(shade)
+                cursor.setPosition(block.position())
+                cursor.setBlockFormat(fmt)
+            block = block.next()
+        cursor.endEditBlock()
+        self.moveCursor(QTextCursor.MoveOperation.Start)  # else the view follows the edits to the end
+        self.verticalScrollBar().setValue(0)
+
+    def show_html(self, text: str) -> None:
+        self.note, self.images = None, []
+        self.document().setBaseUrl(QUrl())
+        self.setHtml(text)
         self.verticalScrollBar().setValue(0)
 
     def _target(self, url: QUrl) -> str | None:
@@ -283,6 +324,15 @@ class MarkdownView(QTextBrowser):
         return None
 
     def loadResource(self, kind, url):
+        if kind == QTextDocument.ResourceType.ImageResource and url.scheme() == "nbimage":
+            try:
+                image = QImage.fromData(QByteArray(self.images[int(url.path())]))
+            except (ValueError, IndexError):
+                return None
+            limit = max(100, self.viewport().width() - 30)
+            if image.width() > limit:
+                image = image.scaledToWidth(limit, Qt.TransformationMode.SmoothTransformation)
+            return image if not image.isNull() else None
         if kind == QTextDocument.ResourceType.ImageResource:
             path = self._target(url) if self.note else None
             if path:
@@ -357,11 +407,25 @@ class QuickView(QWidget):
         self.markdown = MarkdownView()
         self.pdf = PdfView()
         self.csv = CsvView()
+        self.memmap = MemMapView()  # firmware .map / .elf
+        self.memmap.summary.connect(lambda text: self.title.setText(
+            f"{os.path.basename(self.current or '')}   {text}"))
+        self.memmap.not_a_map.connect(self._not_a_map)
+        self.plot = PlotView()  # CSV as a plot (zp); scrolls when there are many columns
+        self.plot.summary.connect(lambda text: self.title.setText(
+            f"{os.path.basename(self.current or '')}   {text}"))
+        self.plot.not_numeric.connect(self._not_numeric)
+        self.plot_area = QScrollArea()
+        self.plot_area.setWidget(self.plot)
+        self.plot_area.setWidgetResizable(True)
+        self.plot_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.plot_area.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.pdf.status.connect(lambda text: self.title.setText(
             f"{os.path.basename(self.current or '')}   {text}"))
         self.show_hidden = False  # set by the main window, for the graph's scan
         self.stack = QStackedWidget()
-        for w in (self.text, self.image, self.info, self.graph, self.markdown, self.pdf, self.csv):
+        for w in (self.text, self.image, self.info, self.graph, self.markdown, self.pdf, self.csv, self.memmap,
+                  self.plot_area):
             self.stack.addWidget(w)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -375,6 +439,8 @@ class QuickView(QWidget):
         self.image.set_image(QImage())
         self.graph.stop()
         self.pdf.stop()
+        self.memmap.stop()
+        self.plot.stop()
         self.markdown.clear()
         self.csv.clear()
 
@@ -390,6 +456,8 @@ class QuickView(QWidget):
         self.title.show()
         if not path.lower().endswith(".pdf") or is_dir:
             self.pdf.stop()
+        self.memmap.stop()
+        self.plot.stop()
         if remote.is_remote(path):
             self.graph.stop()
             try:
@@ -412,6 +480,15 @@ class QuickView(QWidget):
                 self._text_or_info(path, in_archive)
             elif path.lower().endswith(".pdf"):
                 self._pdf(path, in_archive)
+            elif memmap.is_candidate(path) and not in_archive:
+                self.stack.setCurrentWidget(self.memmap)
+                self.memmap.load(path)  # not a linker map / ELF after all: _not_a_map shows text
+            elif PLOT["on"] and tabular.is_table(path):
+                self._plot(path, in_archive)  # no numbers in it after all: _not_numeric shows the table
+            elif notebook.is_notebook(path):
+                self._notebook(path, in_archive)
+            elif cubemx.is_ioc(path):
+                self._ioc(path, in_archive)
             elif not self._try_image(path, in_archive):
                 self._text_or_info(path, in_archive)
         except OSError as e:
@@ -419,10 +496,65 @@ class QuickView(QWidget):
 
     def scroll_pages(self, pages: int) -> None:
         widget = self.stack.currentWidget()
-        bar = (widget if widget in (self.text, self.markdown, self.pdf, self.csv) else self.text).verticalScrollBar()
+        bar = (widget if widget in (self.text, self.markdown, self.pdf, self.csv, self.plot_area)
+               else self.text).verticalScrollBar()
         bar.setValue(bar.value() + pages * bar.pageStep())
 
     # Kinds of preview
+
+    def _not_a_map(self, path: str) -> None:
+        if path == self.current:
+            try:
+                self._text_or_info(path, False)
+            except OSError as e:
+                self._info(f"Cannot read this file: {e.strerror or e}")
+
+    def _plot(self, path: str, in_archive: bool) -> None:
+        source = archive.read(path, ARCHIVE_PLOT_LIMIT) if in_archive else path
+        self.stack.setCurrentWidget(self.plot_area)
+        self.plot.load(path, source)
+
+    def _not_numeric(self, path: str) -> None:
+        if path == self.current:
+            try:
+                self._text_or_info(path, archive.inside(path) is not None)
+            except OSError as e:
+                self._info(f"Cannot read this file: {e.strerror or e}")
+                return
+            self.title.setText(self.title.text() + "   (no numbers to plot)")
+
+    def _notebook(self, path: str, in_archive: bool) -> None:
+        """A Jupyter notebook's cells and outputs; text if it is too big or not one."""
+        if in_archive:
+            data = archive.read(path, NOTEBOOK_LIMIT)
+        elif os.path.getsize(path) <= NOTEBOOK_LIMIT:
+            with open(path, "rb") as f:
+                data = f.read()
+        else:
+            data = b""
+        try:
+            nb = notebook.convert(data)
+        except ValueError:
+            self._text_or_info(path, in_archive)
+            return
+        self.title.setText(f"{os.path.basename(path)}   {nb.summary}")
+        self.markdown.show_notebook(nb, None if in_archive else path)
+        self.stack.setCurrentWidget(self.markdown)
+
+    def _ioc(self, path: str, in_archive: bool) -> None:
+        """An STM32CubeMX project: chip, clocks, pins, peripherals."""
+        if in_archive:
+            data = archive.read(path, TEXT_LIMIT * 4)
+        else:
+            with open(path, "rb") as f:
+                data = f.read(TEXT_LIMIT * 4)
+        project = cubemx.parse(data.decode("utf-8", errors="replace"))
+        if project is None:
+            self._text_or_info(path, in_archive)
+            return
+        self.title.setText(f"{os.path.basename(path)}   {cubemx.summary(project)}")
+        self.markdown.show_html(cubemx.to_html(project))
+        self.stack.setCurrentWidget(self.markdown)
 
     def _info(self, html: str) -> None:
         self.info.setText(html)

@@ -8,21 +8,22 @@ import shlex
 import stat
 import subprocess
 import sys
+import time
 import traceback
 import zipfile
 from collections import deque
 from datetime import datetime
 
-from PySide6.QtCore import QEvent, QFileSystemWatcher, QObject, QPoint, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase, QKeyEvent
+from PySide6.QtCore import QEvent, QFile, QFileSystemWatcher, QObject, QPoint, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDialog, QHBoxLayout, QInputDialog, QLabel, QSizePolicy,
-                               QLineEdit, QMainWindow, QMenu, QMessageBox, QSplitter, QVBoxLayout,
+                               QLineEdit, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QSplitter, QVBoxLayout,
                                QWidget)
 
 import tempfile
 
-from . import archive, cleanup, clipboard, config, gitstatus, graphview, preview, remote, rules
-from .actions import ACTIONS, ALIASES, COMMANDS, needs_argument
+from . import archive, cleanup, clipboard, config, gitstatus, graphview, pdftools, preview, remote, rules
+from .actions import ACTIONS, ALIASES, COMMANDS, needs_argument, resolve
 from .activity import ActivityDialog
 from .bulkrename import BulkRenameDialog
 from .compare import compare_trees
@@ -34,14 +35,14 @@ from .terminal import Terminal
 from .sync import SyncDialog
 from .whichkey import WhichKey, pretty
 from .bar import BarItem, LaunchBar, default_items, default_terminal, item_for_path, run_command
-from . import theme, zoxide
+from . import termshell, theme, wsl, zoxide
 from .dialogs import PackDialog, ProgressDialog, UnpackDialog, ZoxideDialog, ask_conflict
 from .jobs import QUEUED_OPS, JobsPanel
 from .fileops import HASHES, Job, SizeJob, unique_dest
-from .pane import DIR_SIZES, SORT_KEYS, Entry, Pane, Results, child_name, human_size, set_colors
+from .pane import DIR_SIZES, NATURAL, SORT_KEYS, Entry, Pane, Results, child_name, human_size, set_colors
 from .results import Search, branch_paths, changed_files, find_paths
 from .rename import check_names, format_name, parse_substitute
-from .vim import NORMAL, VISUAL, Action, KeyEngine, user_bindings
+from .vim import NORMAL, VISUAL, Action, KeyEngine, parse_langmap, user_bindings
 from .rulesdialog import RulesDialog, group_steps
 from .sizing import fit_window
 
@@ -104,8 +105,10 @@ BOOL_OPTIONS = {
     "ignorecase": ("ignorecase", ("ic",)), "smartcase": ("smartcase", ("scs",)),
     "hlsearch": ("hlsearch", ("hls",)), "wrapscan": ("wrapscan", ("ws",)),
     "hidden": ("show_hidden", ()),
-    "columns": ("columns", ()), "git": ("git", ()),
+    "columns": ("columns", ()), "git": ("git", ()), "natural": ("natural_sort", ()),
 }
+# :set options of this session's views (not saved): name -> short names
+RUNTIME_OPTIONS = {"hex": (), "plot": (), "grid": (), "quickview": ("qv",), "linkpanes": ("lp",), "bar": ()}
 # :set name=value options: name -> (config key, short names, allowed values)
 STRING_OPTIONS = {
     "clipboard": ("clipboard", ("cb",), ("", "unnamed", "unnamedplus")),
@@ -117,6 +120,8 @@ JUMPS = {"first", "last", "percent", "search_next", "search_prev", "search_like"
          "screen_middle", "screen_bottom"}
 JUMP_COMMANDS = {"cd", "z", "zi", "find", "tabnew"}
 MACRO_LIMIT = 20000  # keys played by one @, so a macro that calls itself stops
+# Windows, in the console-less build: a console program started by :! would flash a window
+NO_CONSOLE = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" and sys.stdout is None else 0
 
 
 def pattern_regex(text: str, ignorecase: bool = True, smartcase: bool = True) -> re.Pattern:
@@ -188,7 +193,7 @@ HELP = """\
 &nbsp;&nbsp;(notes = Markdown links, code = imports between source files; big dots are imported by many)
 &nbsp;&nbsp;right-click, Menu key or Shift-F10 = context menu (on Windows the Explorer menu;
 &nbsp;&nbsp;Shift+right-click adds extended items, Ctrl+right-click shows VimCommander's own menu)
-&nbsp;&nbsp;zip files open like folders (read-only: copy out with F5 or yy / p)
+&nbsp;&nbsp;zip files open like folders (read-only but for deleting: copy out with F5 or yy / p)
 <b>Search</b>: /regex or ?regex (backwards), n/N = next/previous, * / # = next/previous with the same extension
 &nbsp;&nbsp;matches are highlighted (:noh clears), smartcase; *.jpg works as a shell pattern
 &nbsp;&nbsp;=pattern = show only matching names (= and Enter on an empty line clears), :filter PATTERN
@@ -198,32 +203,47 @@ HELP = """\
 &nbsp;&nbsp;{ / } = previous / next group (folders, each extension), 50% = halfway, Ctrl-e / Ctrl-y = scroll
 &nbsp;&nbsp;'' = back to before the last jump, Ctrl-^ or :cd - = previous folder, Ctrl-g = file details
 &nbsp;&nbsp;gx = open with the system app, :e FILE = edit, ZZ / ZQ / :q = close tab or quit, :qa = quit
-&nbsp;&nbsp;:tabs, :tabmove N, :set clipboard=unnamedplus (y / p use the system clipboard)
+&nbsp;&nbsp;:tabs, :tabmove N, :tabn / :tabp / :tabfirst / :tablast / :tabonly, :set clipboard=unnamedplus (y / p use the system clipboard)
+&nbsp;&nbsp;:d / :d! = trash / delete, :y / :pu = yank / put, :normal KEYS, & = repeat the last :s, :pwd, :messages
 <b>Tools</b>: Ctrl-Shift-p = command palette, Ctrl-p = find files (fuzzy, zoxide-ranked), gr = activity calendar
 &nbsp;&nbsp;:bulkrename = rename in an editor, :compare = tag differences, :synchronize = sync the panes' folders
 &nbsp;&nbsp;:graph sunburst / treemap = disk usage, :graph timeline = when folders changed, :graph types = what they hold; after g, z, y, ", m, ', q, @, Ctrl-w the next keys are listed
 &nbsp;&nbsp;g/ or :grep TEXT = search inside files (Enter = edit at the line, Ctrl-Enter = files as a list)
 &nbsp;&nbsp;Quick view renders Markdown (click a [[link]] to go to the note), CSV tables and PDFs; :obsidian = open in Obsidian
+&nbsp;&nbsp;Jupyter notebooks (cells, outputs, plots) and STM32CubeMX .ioc projects (pins, clocks, peripherals) too
+&nbsp;&nbsp;zp = CSV files as a plot / as a table; on the plot: drag = zoom in, right-click = back, double-click = all
 &nbsp;&nbsp;gd or :diffthis = two files side by side (tagged, or both cursors): ]c / [c = next / previous change
 <b>Result lists</b>: :find, :grep, Ctrl-p + Ctrl-Enter and gr fill the pane with files from many folders;
 &nbsp;&nbsp;tag, yy, F5, Del, cw work as usual; h = back to the folder, gf = go to the file, :results = show again
+&nbsp;&nbsp;]q / [q or :cn / :cp = the next / previous item, opened in its own folder; 3]q = three items on
+&nbsp;&nbsp;:copen / :cclose = show / leave the list, :clist = its items, :colder / :cnewer = earlier / later lists
+&nbsp;&nbsp;:cdo !COMMAND %f = run it for each item (tagged, or all) in its folder; :cdo CMD = a : command for each
 <b>Shelf</b>: zs = put on the shelf, zS = show / go to it, :shelf copy | move | zip | list | clear, :zip NAME
 <b>Recent</b>: :recent = files you opened, newest first; :recent changed 3 = files changed here in 3 days
-<b>Space</b>: :reclaim = caches and big old files, :dupes = duplicate files (:dupes tag = all but the newest)
+<b>Space</b>: :reclaim = caches, build output (also STM32 / Atmel / Keil / Ansys) and big old files,
+&nbsp;&nbsp;:dupes = duplicate files (:dupes tag = all but the newest)
+<b>PDF</b>: :pdfmerge NAME = join the tagged PDFs, in the pane's order, into NAME.pdf
+&nbsp;&nbsp;:pdfextract 2-5 = those pages of the PDF (or each tagged one) as a new PDF; 1,4,7- or 9-7 work too
 <b>Git</b>: changed / new / ignored files are colored, the branch is in the header; :git changed, :git diff (or gd)
 <b>More</b>: :linkpanes = browse two mirror trees together, :set columns = Miller columns, :rules = folder rules,
 &nbsp;&nbsp;:mksession NAME / :session NAME = save / open both panes' tabs and the shelf
 <b>Grid</b>: zi = thumbnails / list (j k = a row, w b = one tile, Ctrl+wheel = size), :grid SIZE
 <b>Terminal</b>: Ctrl-` = terminal panel; it follows the pane and the pane follows its cd; Esc = back
+&nbsp;&nbsp;Ctrl-w t or :vterm [wsl|wsl:NAME|pwsh|cmd|bash] = a real terminal in the other pane (vim, htop work)
+&nbsp;&nbsp;in it: Ctrl-w h/l/w = back to the files, Shift-PgUp = scroll back, Ctrl-Shift-C / V = copy / paste, exit = close
+&nbsp;&nbsp;:mount / :umount = mount this SSH folder with sshfs in the terminal pane (WSL on Windows)
+<b>Memory map</b>: Ctrl-q on a linker .map (GNU ld, Keil) or .elf = Flash / RAM bars and a treemap of sections, objects, functions
 <b>Share</b>: :share = QR code for a phone to download the tagged files and send files back; :share stop
 <b>SSH</b>: :ssh user@host[:path] = a server's folder in this pane (F5 / F6 copy across, F4 edits and uploads
 &nbsp;&nbsp;on save, Ctrl-` = a shell there), :mirror = make the other pane a copy of this one, :ssh close
 <b>FTP</b>: :ftp [user@]host[/path] (no user = anonymous, ftps://host = TLS), same keys as SSH, no shell
 <b>Jobs</b>: copies and moves wait in a queue; :jobs = the panel (pause, cancel, run next), :jobs pause / resume
-&nbsp;&nbsp;:set nu / rnu / ic / scs / hls / ws / hidden (no… to turn off, …! to toggle, …? to show)
+&nbsp;&nbsp;:set nu / rnu / ic / scs / hls / ws / hidden / natural (no… to turn off, …! to toggle, …? to show)
+&nbsp;&nbsp;:set hex / plot / grid / qv / lp / bar = views for this session (quick view, linked panes)
 &nbsp;&nbsp;command line: Up/Down history, Ctrl-w word, Ctrl-u line, Ctrl-r Ctrl-f file name, Ctrl-r Ctrl-p path
 <b>Drag and drop</b>: drop = copy, Shift+drop = move. Works with other apps too.
 <b>Commands</b>: :q &nbsp; :cd PATH &nbsp; :mkdir NAME &nbsp; :touch NAME &nbsp; :rename NAME &nbsp; (Tab completes)
+&nbsp;&nbsp;:se = :set, :tabn = :tabnext, :bulk = :bulkrename (any unique start, as in vim); :rename! / :pdfextract! = replace an existing file
 &nbsp;&nbsp;:rename img_{n:3}{ext} renames all tagged items ({name} {ext} {n}) &nbsp; :s/old/new/gi
 &nbsp;&nbsp;:g/PATTERN/CMD = tag matching names, then CMD on them (d = trash, d! = delete, y = yank, normal KEYS,
 &nbsp;&nbsp;any : command); :g!/… or :v/… = the names that don't match; :g/PATTERN/ = only tag them
@@ -249,6 +269,9 @@ def key_name(event: QKeyEvent) -> str | None:
             name = f"<{prefix}{name[1:-1]}>" if prefix else name
         return name
     if ctrl and int(Qt.Key.Key_A.value) <= key <= int(Qt.Key.Key_Z.value):
+        shift = "S-" if mods & Qt.KeyboardModifier.ShiftModifier else ""
+        return f"<C-{shift}{chr(key).lower()}>"
+    if ctrl and 0x80 <= key <= 0xFFFF and chr(key).isalpha():  # another layout: the engine's langmap maps it
         shift = "S-" if mods & Qt.KeyboardModifier.ShiftModifier else ""
         return f"<C-{shift}{chr(key).lower()}>"
     if ctrl and key in (int(Qt.Key.Key_AsciiCircum.value), int(Qt.Key.Key_6.value)):
@@ -437,10 +460,14 @@ class MainWindow(QMainWindow):
         self.filter_origin = ""
         self.last_change: tuple | None = None  # what '.' repeats
         self.last_ex = ""  # what '@:' repeats
+        self.last_substitute = ""  # what & repeats
+        self.bang = False  # the running : command was typed with ! (force)
+        self.messages: deque[tuple[float, str]] = deque(maxlen=200)  # for :messages
         self._repeating = False
         self.zoxide: zoxide.Zoxide | None = None
         self.graph_windows: list[QWidget] = []
         self.searches: dict[int, Search] = {}  # running result-list searches, by id(pane)
+        self.cdo_run: Search | None = None  # :cdo !COMMAND running over a result list
         self._grep_globs = ""  # the file patterns of the last :grep
         self.git_program: str | None = None
         self.git_repos: dict[int, tuple[str, dict]] = {}  # id(pane) -> (repo, files) of its last status
@@ -507,6 +534,7 @@ class MainWindow(QMainWindow):
             pane.folder_changed.connect(self.zoxide_add)
             pane.folder_changed.connect(lambda path, i=i: self.follow_link(i, path))
             pane.folder_changed.connect(lambda path, i=i: i == self.active and self.terminal.follow(path))
+            pane.folder_changed.connect(lambda path, i=i: self.follow_vterm(i, path))
             pane.view.cursor_moved.connect(lambda i=i: self.follow_link_cursor(i))
             pane.listed.connect(lambda pane=pane: self.on_listed(pane))
             timer = QTimer(self, singleShot=True, interval=250)
@@ -579,6 +607,11 @@ class MainWindow(QMainWindow):
         return self.panes[1 - self.active]
 
     def activate(self, index: int) -> None:
+        if self.panes[index].shows_terminal:  # that pane is a terminal (:vterm): go into it
+            self.leave_visual()
+            self.panes[index].term.setFocus()
+            self.update_status()
+            return
         self.active = index
         for i, pane in enumerate(self.panes):
             pane.set_active(i == index)
@@ -905,6 +938,8 @@ class MainWindow(QMainWindow):
         self.pane.clear_tags()
         if search := self.searches.get(id(self.pane)):
             search.stop.set()
+        if self.cdo_run:
+            self.cdo_run.stop.set()
 
     # File operations
 
@@ -1023,7 +1058,7 @@ class MainWindow(QMainWindow):
         or (`into`: files would be put there) a result list, which isn't a folder."""
         pane = pane or self.pane
         if pane.archive:
-            self.show_message("Archives are read-only: copy files out with F5 or yy / p")
+            self.show_message("Archives are read-only (except for deleting): copy files out with F5 or yy / p")
             return True
         if into and pane.results:
             self.show_message("A result list isn't a folder: h goes back to the folder, gf to the file's folder")
@@ -1032,9 +1067,9 @@ class MainWindow(QMainWindow):
 
     def cmd_trash(self, a):
         entries = self.pane.targets(a.n())
-        if not entries or self._read_only():
+        if not entries:
             return
-        if self.pane.remote:  # no trash on the server
+        if self.pane.remote or self.pane.archive:  # no trash on the server or in a zip
             self.cmd_delete(a)
             return
         what = entries[0].name if len(entries) == 1 else f"{len(entries)} items"
@@ -1045,13 +1080,15 @@ class MainWindow(QMainWindow):
 
     def cmd_delete(self, a):
         entries = self.pane.targets(a.n())
-        if not entries or self._read_only():
+        if not entries:
             return
         what = entries[0].name if len(entries) == 1 else f"{len(entries)} items"
-        where = f" on {self.pane.remote.host}" if self.pane.remote else ""
+        where = (f" on {self.pane.remote.host}" if self.pane.remote else
+                 f" from {os.path.basename(self.pane.archive[0])}" if self.pane.archive else "")
+        why = (" (a server has no trash)." if self.pane.remote else
+               " (a zip has no trash)." if self.pane.archive else ".")
         answer = QMessageBox.warning(
-            self, "Delete permanently", f"Permanently delete {what}{where}?\n\nThis can't be undone"
-            + (" (a server has no trash)." if where else "."),
+            self, "Delete permanently", f"Permanently delete {what}{where}?\n\nThis can't be undone" + why,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if answer == QMessageBox.StandardButton.Yes:
@@ -1160,6 +1197,21 @@ class MainWindow(QMainWindow):
             self.pane.update_columns()
         self.show_message("Hex view " + ("on: every file in hex" if preview.HEX["on"] else
                                          "off (binary files still show in hex)"))
+
+    def cmd_plot(self, a):
+        """zp: quick view shows CSV files as a plot of their numeric columns; again = as a table."""
+        preview.PLOT["on"] = not preview.PLOT["on"]
+        for pane in self.panes:
+            for view in (pane.preview, pane.column_preview):
+                view.current = None  # show it again
+        if preview.PLOT["on"] and not self.quickview:
+            self.cmd_quickview(a)
+        else:
+            self.update_quickview()
+        if self.pane.columns:
+            self.pane.update_columns()
+        self.show_message("CSV files show as plots: drag = zoom, right-click = back (zp = table)"
+                          if preview.PLOT["on"] else "CSV files show as tables (zp = plot)")
 
     def ex_jobs(self, arg):
         """:jobs shows / hides the jobs panel; :jobs pause / resume / cancel act on all jobs."""
@@ -1562,6 +1614,60 @@ class MainWindow(QMainWindow):
             self.show_message(f"Already exists: {name}")
             return
         self.start_job("zip", paths, dest)
+
+    def ex_pdfmerge(self, arg):
+        """:pdfmerge [NAME] joins the tagged PDFs, in the pane's order, into NAME.pdf here."""
+        if self._read_only(into=True) or self._local_only(":pdfmerge"):
+            return
+        entries = self.pane.selected_entries()
+        pdfs = [e.path for e in entries if not e.is_dir and pdftools.is_pdf(e.name)]
+        if len(pdfs) < 2 or len(pdfs) != len(entries):
+            self.show_message("Tag two or more PDFs to merge (only PDFs); they are joined in the pane's order")
+            return
+        name = arg.strip() or os.path.splitext(os.path.basename(pdfs[0]))[0] + " merged"
+        if not name.lower().endswith(".pdf"):
+            name += ".pdf"
+        dest = os.path.join(self.pane.path, name) if arg.strip() else unique_dest(self.pane.path, name)
+        if os.path.lexists(dest):
+            self.show_message(f"Already exists: {name}")
+            return
+        self._take_targets(1)
+        self.start_job("pdfmerge", pdfs, dest)
+
+    def ex_pdfextract(self, arg):
+        """:pdfextract PAGES [NAME] copies pages (3, 2-5, 1,4,7-, 9-7) of the PDF under the
+        cursor, or of each tagged PDF, into a new PDF next to it: NAME.pdf or "<name> pPAGES.pdf"
+        (so it works in a result list too)."""
+        spec, _, name = arg.strip().partition(" ")
+        if not spec:
+            self.show_message("Usage: :pdfextract PAGES [NAME], e.g. :pdfextract 2-5 or :pdfextract 1,3,7-")
+            return
+        if self._read_only() or self._local_only(":pdfextract"):
+            return
+        entries = self.pane.targets(1)
+        pdfs = [e.path for e in entries if not e.is_dir and pdftools.is_pdf(e.name)]
+        if not pdfs or len(pdfs) != len(entries):
+            self.show_message("Put the cursor on a PDF, or tag PDFs (only PDFs)")
+            return
+        name = name.strip()
+        if name and len(pdfs) > 1:
+            self.show_message("A NAME works for one PDF; with several, each gets \"<name> pPAGES.pdf\"")
+            return
+        if name:
+            name += "" if name.lower().endswith(".pdf") else ".pdf"
+            dest = os.path.join(os.path.dirname(pdfs[0]), name)
+            if os.path.lexists(dest) and not self.bang:
+                self.show_message(f"Already exists: {name}   (:pdfextract! replaces it)")
+                return
+            pairs = [(pdfs[0], dest)]
+        else:
+            label = re.sub(r'[\\/:*?"<>|]', "_", spec.replace(" ", ""))
+            pairs = [(p, unique_dest(os.path.dirname(p), f"{os.path.splitext(os.path.basename(p))[0]} p{label}.pdf"))
+                     for p in pdfs]
+        self._take_targets(1)
+        job = Job("pdfextract", pairs)
+        job.pages, job.overwrite = spec, self.bang
+        self._queue_job(job)
 
     def cmd_pack(self, a):
         """Alt+F5: pack the tagged items into a zip in the other pane, with Total Commander's options."""
@@ -2159,6 +2265,112 @@ class MainWindow(QMainWindow):
             self.terminal.run(arg)
     ex_term = ex_terminal
 
+    # Terminal pane (:vterm)
+
+    def cmd_vterm(self, a):
+        """Ctrl-w t: a terminal in the other pane (or back into it), in this pane's folder."""
+        self.ex_vterm("")
+
+    def ex_vterm(self, arg):
+        """:vterm [SHELL] opens a terminal in the other pane: SHELL is wsl, wsl:NAME,
+        pwsh, cmd, bash or a command line; :vterm off closes it."""
+        arg = arg.strip()
+        target = self.other
+        if arg == "off":
+            if target.term:
+                target.close_terminal()
+                self.show_message("Terminal closed")
+            self.pane.view.setFocus()
+            return
+        if target.term:
+            if not target.shows_terminal:  # the quick view covered it
+                self.quickview = False
+                target.show_preview(False)
+            target.term.setFocus()
+            return
+        try:
+            from .termview import TermView
+        except ImportError:
+            self.show_message("The terminal pane needs pyte: pip install pyte"
+                              + (" pywinpty" if WINDOWS else ""))
+            return
+        pane = self.pane
+        folder = pane.path
+        if pane.remote or pane.archive:
+            folder = os.path.dirname(pane.archive[0]) if pane.archive else os.path.expanduser("~")
+        s = self.settings
+        spec = arg or (s.get("vterm") or {}).get("shell") or s["programs"].get("shell", "")
+        if self.quickview:
+            self.quickview = False
+            for p in self.panes:
+                p.show_preview(False)
+        term = TermView(spec, folder, target)
+        term.set_font(getattr(self, "text_font", term.term_font))
+        term.follow = bool((s.get("vterm") or {}).get("follow", True))
+        term.cwd_changed.connect(lambda path, t=target: self.on_vterm_cd(t, path))
+        term.leave.connect(lambda: self.pane.view.setFocus())
+        term.exited.connect(lambda t=target: self.on_vterm_exit(t))
+        target.show_terminal(term)
+        if not target.remote and not target.archive and not target.results:
+            target.cd(folder, record=False)
+        term.start()
+        term.setFocus()
+        self.show_message(f"{term.shell.name} in the {'left' if target is self.panes[0] else 'right'} pane   "
+                          "(Ctrl-w h/l/w = back to the files, exit = close)")
+
+    def follow_vterm(self, i: int, path: str) -> None:
+        """Pane i went to `path`: a terminal in the other pane cds there too."""
+        other = self.panes[1 - i]
+        pane = self.panes[i]
+        if other.term and not pane.remote and not pane.archive and not pane.shows_terminal:
+            other.term.cd(path)
+
+    def on_vterm_cd(self, target: Pane, path: str) -> None:
+        """A cd in the terminal pane: its own (hidden) list goes there, so F5 copies
+        into the shell's folder; with follow on, the file pane goes there too."""
+        if not os.path.isdir(path):
+            return
+        target.cd(path, record=False)
+        files = self.panes[1 - self.panes.index(target)]
+        if target.term and target.term.follow and not files.remote and \
+                os.path.normcase(files.path) != os.path.normcase(path):
+            files.cd(path)
+
+    def on_vterm_exit(self, target: Pane) -> None:
+        had_focus = target.term is not None and target.term.hasFocus()
+        target.close_terminal()
+        self.show_message("The terminal ended")
+        if had_focus or self.pane is target:
+            self.pane.view.setFocus()
+
+    def ex_mount(self, arg):
+        """:mount mounts this SSH folder with sshfs in the terminal pane (WSL on Windows)."""
+        self._sshfs(mount=True)
+
+    def ex_umount(self, arg):
+        """:umount unmounts it again."""
+        self._sshfs(mount=False)
+
+    def _sshfs(self, mount: bool) -> None:
+        loc = remote.parse(self.pane.path)
+        if loc is None or loc.is_ftp:
+            self.show_message(":mount works in an SSH folder (:ssh): it mounts it with sshfs "
+                              "in a Linux terminal pane (WSL on Windows)")
+            return
+        if self.other.term is None:
+            self.ex_vterm("wsl" if WINDOWS else "")
+        term = self.other.term
+        if term is None:
+            return
+        if term.shell.kind not in ("wsl", "posix"):
+            self.show_message("sshfs needs a Linux shell: close this terminal (:vterm off), then :vterm wsl")
+            return
+        term.send_line(termshell.mount_line(loc) if mount else termshell.umount_line(loc))
+        term.setFocus()  # sshfs may ask for the password there
+        if mount:
+            self.show_message(f"Mounting {loc.key} at {termshell.mount_point(loc)} "
+                              "(needs sshfs in Linux: sudo apt install sshfs)")
+
     def on_terminal_shown(self, visible: bool) -> None:
         if visible and not self.terminal.running:
             folder = self.pane.path if not (self.pane.archive or self.pane.results) else os.path.expanduser("~")
@@ -2580,13 +2792,16 @@ class MainWindow(QMainWindow):
 
     def ex_set(self, arg):
         """:set nu, :set nonu, :set nu!, :set invnu, :set nu?, several at once."""
+        runtime = self.runtime_options()
         if not arg:
             self.show_message("  ".join(
                 [("" if self.settings.get(key) else "no") + name for name, (key, _) in BOOL_OPTIONS.items()]
-                + [f"{name}={self.settings.get(key, '')}" for name, (key, _, _) in STRING_OPTIONS.items()]))
+                + [f"{name}={self.settings.get(key, '')}" for name, (key, _, _) in STRING_OPTIONS.items()]
+                + [("" if on else "no") + name for name, (on, _) in runtime.items()]))
             return
-        changes, shown = {}, []
+        changes, shown, live = {}, [], {}
         names = {alias: name for name, (_, short) in BOOL_OPTIONS.items() for alias in (name, *short)}
+        names.update({alias: name for name, short in RUNTIME_OPTIONS.items() for alias in (name, *short)})
         strings = {alias: name for name, (_, short, _) in STRING_OPTIONS.items()
                    for alias in (name, *short)}
         for word in arg.split():
@@ -2613,6 +2828,13 @@ class MainWindow(QMainWindow):
                 self.show_message(f"Unknown option: {word}")
                 return
             name = names[word]
+            if name in runtime:
+                current = live.get(name, runtime[name][0])
+                if query:
+                    shown.append(("" if current else "no") + name)
+                else:
+                    live[name] = (not current) if toggle else value
+                continue
             key = BOOL_OPTIONS[name][0]
             current = bool(changes.get(key, self.settings.get(key)))
             if query:
@@ -2623,6 +2845,9 @@ class MainWindow(QMainWindow):
             self.settings.update(changes)
             self.apply_config()
             self.save_settings(changes)
+        for name, on in live.items():
+            if on != runtime[name][0]:
+                runtime[name][1](on)
         if shown:
             self.show_message("  ".join(shown))
 
@@ -3074,10 +3299,18 @@ class MainWindow(QMainWindow):
         elif entry and not entry.is_parent:
             self.cmdline.insert(entry.name if kind == "name" else entry.path)
 
+    def command_names(self) -> set[str]:
+        """Every : command: the ex_ methods and the config's own commands."""
+        return {m[3:] for m in dir(type(self)) if m.startswith("ex_")} | set(self.settings.get("commands") or {})
+
     def execute(self, line: str, depth: int = 0) -> None:
         line = line.strip().lstrip(":")
+        if line in ("&", "&&"):  # repeat the last :s
+            self.repeat_substitute()
+            return
         if depth == 0 and not self._repeating:
-            name = "s" if re.match(r"s[^\w\s]", line) else line.partition(" ")[0]
+            word = line.partition(" ")[0].rstrip("!")
+            name = "s" if re.match(r"s[^\w\s]", line) else (resolve(word, self.command_names())[0] or word)
             if name in REPEATABLE_EX:
                 self.last_change = ("ex", line)
             if name in JUMP_COMMANDS or line.isdigit():
@@ -3096,18 +3329,24 @@ class MainWindow(QMainWindow):
             return
         cmd, _, arg = line.partition(" ")
         arg = arg.strip()
+        name, could_be = resolve(cmd.rstrip("!"), self.command_names())
+        could_be = [n for n in could_be if ALIASES.get(n) not in could_be]  # :tabclose, not also :tabc
+        if name is None:
+            self.show_message(f"Ambiguous: :{cmd} could be " + ", ".join(":" + n for n in could_be[:8])
+                              if could_be else f"Not a command: {cmd}")
+            return
         user = self.settings.get("commands") or {}
-        if cmd in user and depth < 10:
-            self.execute(f"{user[cmd]} {arg}", depth + 1)
+        if name in user and not hasattr(self, f"ex_{name}"):
+            if depth < 10:
+                self.execute(f"{user[name]} {arg}", depth + 1)
             return
-        handler = getattr(self, f"ex_{cmd.rstrip('!')}", None)
-        if handler is None:
-            self.show_message(f"Not a command: {cmd}")
-            return
+        self.bang = cmd.endswith("!")
         try:
-            handler(arg)
+            getattr(self, f"ex_{name}")(arg)
         except OSError as e:
-            self.show_message(f"{cmd}: {e.strerror or e}")
+            self.show_message(f"{name}: {e.strerror or e}")
+        finally:
+            self.bang = False
 
     def global_command(self, name: str, delimiter: str, rest: str, depth: int = 0) -> None:
         """:g/pattern/cmd tags the items whose names match (:g! and :v the others), then
@@ -3136,26 +3375,23 @@ class MainWindow(QMainWindow):
             register = arg.strip() if word in ("y", "yank") and arg.strip() else None
             self.run_action(GLOBAL_ACTIONS[word if register else cmd], None, None, register)
         elif word in ("normal", "norm"):
-            self.engine.reset()
-            for key in re.findall(r"<[^<>\s]+>|.", arg):
-                if action := self.engine.feed(key):
-                    self.run_action(action.name, action.count, action.arg, action.register)
-            self.engine.reset()
+            self.run_keys(arg)
         elif depth < 10:
             self.execute(cmd, depth + 1)
 
-    def shell_command(self, line: str) -> None:
-        """Run a shell command line in this folder, with %d %o %f %s filled in (%% = %)."""
-        ctx = self.bar_context()
+    @staticmethod
+    def fill_shell(line: str, ctx: dict) -> str:
+        """%d %o %f %s in a shell command line, quoted, from a bar_context() dict (%% = %)."""
         quote = subprocess.list2cmdline if sys.platform == "win32" else shlex.join
         values = {"d": quote([ctx["cwd"]]), "o": quote([ctx["other"]]),
                   "f": quote([ctx["current"]]) if ctx["current"] else "",
                   "s": quote(ctx["selected"]), "%": "%"}
-        line = re.sub(r"%([dofs%])", lambda m: values[m.group(1)], line)
-        flags = 0
-        if sys.platform == "win32" and sys.stdout is None:  # no console: don't flash one
-            flags = subprocess.CREATE_NO_WINDOW
-        subprocess.Popen(line, shell=True, cwd=self.pane.path, creationflags=flags)
+        return re.sub(r"%([dofs%])", lambda m: values[m.group(1)], line)
+
+    def shell_command(self, line: str) -> None:
+        """Run a shell command line in this folder, with %d %o %f %s filled in (%% = %)."""
+        subprocess.Popen(self.fill_shell(line, self.bar_context()), shell=True, cwd=self.pane.path,
+                         creationflags=NO_CONSOLE)
 
     def _arg_path(self, arg: str) -> str:
         if len(arg) > 1 and arg[0] == arg[-1] and arg[0] in "'\"":
@@ -3200,11 +3436,12 @@ class MainWindow(QMainWindow):
             self.show_message(f"Config file: {path}")
 
     def ex_sort(self, arg):
+        """:sort size, :sort -size or :sort! size (reversed)."""
         key = arg.lstrip("-") or "name"
         if key not in SORT_KEYS:
-            self.show_message(f"Sort by one of: {', '.join(SORT_KEYS)} (prefix - to reverse)")
+            self.show_message(f"Sort by one of: {', '.join(SORT_KEYS)} (:sort! or a - in front to reverse)")
             return
-        self.pane.set_sort(key, arg.startswith("-"))
+        self.pane.set_sort(key, arg.startswith("-") or self.bang)
 
     def ex_select(self, arg):
         n = self.pane.tag_matching(arg or "*")
@@ -3291,8 +3528,12 @@ class MainWindow(QMainWindow):
             return
         dest = remote.join(remote.dirname(entry.path), arg)
         if self._exists(dest) and os.path.normcase(dest) != os.path.normcase(entry.path):
-            self.show_message(f"Already exists: {arg}")
-            return
+            if not self.bang:
+                self.show_message(f"Already exists: {arg}   (:rename! {arg} replaces it, moving it to the trash)")
+                return
+            if remote.is_remote(dest) or not QFile(dest).moveToTrash():
+                self.show_message(f"Could not move the old {arg} to the trash")
+                return
         self._rename(entry.path, dest)
         if not remote.is_remote(dest):  # undo works on this computer only
             self._record(f"rename of {entry.name}", [("renamed", entry.path, dest)])
@@ -3307,6 +3548,7 @@ class MainWindow(QMainWindow):
         """:s/regex/replacement/[gi] on the names of the tagged items (or the cursor's)."""
         if self._read_only():
             return
+        self.last_substitute = line
         try:
             regex, repl, count = parse_substitute(line)
         except (ValueError, re.error) as e:
@@ -3568,6 +3810,275 @@ class MainWindow(QMainWindow):
         self.show_message(f"{len(pane.model.entries) - 1} item(s)   h = back to the folder, gf = go to the file")
         self.update_status()
 
+    # ]q / [q walk a result list in place; :cdo runs a command for each of its items
+
+    def _result_list(self) -> Results | None:
+        """The active pane's result list: the one it shows, or else the last one."""
+        results = self.pane.results or self.pane.last_results
+        if results is None:
+            self.show_message("No result list yet: :find, :grep, :recent, gb, Ctrl-p then Ctrl-Enter…")
+        return results
+
+    def cmd_qf_next(self, a): self.qf_step(a.n())
+
+    def cmd_qf_prev(self, a): self.qf_step(-a.n())
+
+    def ex_cnext(self, arg): self.qf_step(int(arg) if arg.strip().isdigit() else 1)
+    ex_cn = ex_cnext
+
+    def ex_cprevious(self, arg): self.qf_step(-(int(arg) if arg.strip().isdigit() else 1))
+    ex_cp = ex_cN = ex_cprev = ex_cprevious
+
+    def qf_step(self, step: int) -> None:
+        """]q / [q: open the folder of the next / previous item of the result list, with
+        the cursor on it (like gf), so the list can be gone through where the files
+        are. In the list itself, it goes on from the item under the cursor."""
+        pane = self.pane
+        results = self._result_list()
+        if results is None:
+            return
+        if pane.results is results and (entry := pane.current_entry()):
+            if not entry.is_parent and entry.path in results.paths:
+                results.index = results.paths.index(entry.path)
+        i = results.index
+        while True:
+            i += step
+            if not 0 <= i < len(results.paths):
+                QApplication.beep()
+                self.show_message(f"No more items ({len(results.paths)} in [{results.title}])")
+                return
+            if os.path.lexists(results.paths[i]):
+                break
+            step = 1 if step > 0 else -1  # skip removed files one at a time
+        results.index = i
+        path = results.paths[i]
+        self.remember_jump()
+        if self.pane.cd(os.path.dirname(path), select=os.path.basename(path)):
+            self.show_message(f"({i + 1} of {len(results.paths)})  {path}")
+
+    def ex_cdo(self, arg):
+        """:cdo CMD runs CMD once for each item of the result list (the tagged ones, or all):
+        :cdo !COMMAND in the item's folder with %f = the item, or :cdo COMMAND (a : command)
+        with the cursor on the item."""
+        cmd = arg.strip()
+        if not cmd:
+            self.show_message("Usage: :cdo !COMMAND (%f = the item, %d = its folder) or :cdo COMMAND (a : command)")
+            return
+        pane = self.pane
+        results = self._result_list()
+        if results is None:
+            return
+        if pane.results is results:
+            paths = [e.path for e in pane.selected_entries() if not e.is_parent]
+            paths = paths or [e.path for e in pane.model.entries if not e.is_parent]
+        else:
+            paths = [p for p in results.paths if os.path.lexists(p)]
+        if not paths:
+            self.show_message(f"[{results.title}] is empty")
+        elif cmd.startswith("!"):
+            self._cdo_shell(cmd[1:].strip(), paths)
+        else:
+            self._cdo_command(cmd, paths, results)
+
+    def _cdo_command(self, cmd: str, paths: list[str], results: Results) -> None:
+        """Run a : command with the cursor on each item in turn (in the list, untagged)."""
+        name = cmd.partition(" ")[0].rstrip("!")
+        if name == "cdo" or not (re.match(r"s[^\w\s]", cmd) or GLOBAL.match(cmd) or hasattr(self, f"ex_{name}")
+                                 or name in (self.settings.get("commands") or {})):
+            self.show_message(f"Not a command for :cdo: {name}")
+            return
+        pane = self.pane
+        if pane.results is not results:
+            pane.show_results(results)
+        self.leave_visual()
+        pane.clear_tags()
+        done, rows, listed = 0, {}, None
+        for path in paths:
+            if pane.results is not results:
+                break  # the command left the list
+            if pane.model.entries is not listed:  # the list was reloaded (a rename, a delete…)
+                listed = pane.model.entries
+                rows = {e.path: i for i, e in enumerate(listed)}
+            if path in rows:
+                pane.set_cursor(rows[path])
+                self.execute(cmd, depth=1)
+                done += 1
+        self.show_message(f":{cmd} ran for {done} item(s)")
+
+    def _cdo_shell(self, line: str, paths: list[str]) -> None:
+        """Run a shell command for each path, one after another, in a thread (Esc stops)."""
+        if not line:
+            self.show_message("Usage: :cdo !COMMAND, e.g. :cdo !dos2unix %f")
+            return
+        if self.cdo_run:
+            self.show_message("A :cdo is still running (Esc stops it)")
+            return
+        other = self.other.path
+        jobs = [(path, os.path.dirname(path) or ".") for path in paths]
+        commands = [self.fill_shell(line, {"cwd": folder, "other": other, "current": path, "selected": [path]})
+                    for path, folder in jobs]
+
+        def run(stop):
+            for (path, folder), command in zip(jobs, commands):
+                if stop.is_set():
+                    return
+                try:
+                    done = subprocess.run(command, shell=True, cwd=folder, capture_output=True,
+                                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                    output = (done.stderr or done.stdout).decode(errors="replace").strip()
+                    yield [(path, done.returncode, output)]
+                except (OSError, ValueError, subprocess.SubprocessError) as e:
+                    yield [(path, -1, str(e))]
+
+        search, ran, failed = Search(run), [0], []
+
+        def found(batch):
+            for path, code, output in batch:
+                ran[0] += 1
+                if code:
+                    failed.append((path, code, output))
+            self.show_message(f":cdo {ran[0]} of {len(paths)}…   (Esc stops)")
+
+        def done(finished):
+            self.cdo_run = None
+            search.deleteLater()
+            for pane in self.panes:  # the commands may have made or changed files
+                pane.reload()
+            text = f":cdo ran for {ran[0]} item(s)" + ("" if finished else " (stopped)")
+            if failed:
+                path, code, output = failed[0]
+                first = output.splitlines()[0][:200] if output else ""
+                text += (f", {len(failed)} failed: {os.path.basename(path)} (exit {code})"
+                         + (f": {first}" if first else ""))
+            self.show_message(text)
+
+        search.found.connect(found)
+        search.done.connect(done)
+        self.cdo_run = search
+        self.show_message(f":cdo running on {len(paths)} item(s)…   (Esc stops)")
+        search.start()
+
+    def ex_copen(self, arg): self.ex_results(arg)
+
+    def ex_cclose(self, arg):
+        if self.pane.results:
+            self.pane.leave_results()
+
+    def ex_clist(self, arg):
+        """:clist: the result list's items, numbered; > marks the one ]q went to last."""
+        results = self._result_list()
+        if results is None:
+            return
+        lines = [f"{'>' if i == results.index else ' '}{i + 1:4}  {p}" for i, p in enumerate(results.paths[:500])]
+        if len(results.paths) > 500:
+            lines.append(f"… {len(results.paths) - 500} more")
+        self.show_text(f"[{results.title}]", "\n".join(lines) or "(empty)")
+
+    def ex_colder(self, arg): self._result_history(-(int(arg) if arg.isdigit() else 1))
+
+    def ex_cnewer(self, arg): self._result_history(int(arg) if arg.isdigit() else 1)
+
+    def _result_history(self, step: int) -> None:
+        """:colder / :cnewer: the pane keeps its last result lists, like vim's quickfix stack."""
+        pane = self.pane
+        lists = pane.result_history
+        current = pane.results or pane.last_results
+        i = next((k for k, r in enumerate(lists) if r is current), len(lists) - 1) + step
+        if not lists or not 0 <= i < len(lists):
+            self.show_message(f"No {'older' if step < 0 else 'newer'} result list ({len(lists)} kept)")
+            return
+        self.remember_jump()
+        pane.show_results(lists[i])
+        self.show_message(f"Result list {i + 1} of {len(lists)}: [{lists[i].title}]")
+
+    def ex_delete(self, arg):
+        """:delete trashes the tagged items (or the cursor's), :delete! deletes them for good."""
+        self.run_action("delete" if self.bang else "trash", None, None, None)
+
+    def ex_yank(self, arg): self.run_action("yank", None, None, arg[:1] or None)
+
+    def ex_put(self, arg): self.run_action("paste", None, None, arg[:1] or None)
+
+    def ex_normal(self, arg):
+        """:normal KEYS runs keys in the pane as if typed (<C-d>, <CR> style for special keys)."""
+        if not arg:
+            self.show_message("Usage: :normal KEYS, e.g. :normal 3jyy")
+            return
+        self.run_keys(arg)
+
+    def run_keys(self, keys: str) -> None:
+        self.engine.reset()
+        for key in re.findall(r"<[^<>\s]+>|.", keys):
+            if action := self.engine.feed(key):
+                self.run_action(action.name, action.count, action.arg, action.register)
+        self.engine.reset()
+
+    def ex_pwd(self, arg): self.show_message(self.pane.path)
+
+    def ex_messages(self, arg):
+        if not self.messages:
+            self.show_message("No messages yet")
+            return
+        self.show_text("Messages", "\n".join(f"{time.strftime('%H:%M:%S', time.localtime(t))}  {m}"
+                                             for t, m in self.messages))
+
+    def show_text(self, title: str, text: str) -> None:
+        """A list (:messages, :clist) in a window of its own, newest at the bottom."""
+        box = QDialog(self)
+        box.setWindowTitle(title)
+        view = QPlainTextEdit(text)
+        view.setReadOnly(True)
+        view.setFont(getattr(self, "text_font", view.font()))
+        layout = QVBoxLayout(box)
+        layout.addWidget(view)
+        fit_window(box, 900, 500)
+        view.moveCursor(QTextCursor.MoveOperation.End)
+        box.exec()
+        self.pane.view.setFocus()
+
+    def cmd_repeat_substitute(self, a): self.repeat_substitute()
+
+    def repeat_substitute(self) -> None:
+        """&: the last :s again, on the tagged items or the cursor's."""
+        if not self.last_substitute:
+            self.show_message("No :s yet")
+        else:
+            self.substitute(self.last_substitute)
+
+    # Tabs
+
+    def ex_tabnext(self, arg):
+        """:tabnext = the next tab, :tabnext N = tab N."""
+        pane = self.pane
+        pane.switch_tab(int(arg) - 1 if arg.isdigit() else (pane.tab + 1) % len(pane.tabs))
+
+    def ex_tabprevious(self, arg):
+        pane = self.pane
+        pane.switch_tab((pane.tab - (int(arg) if arg.isdigit() else 1)) % len(pane.tabs))
+
+    def ex_tabfirst(self, arg): self.pane.switch_tab(0)
+
+    def ex_tablast(self, arg): self.pane.switch_tab(len(self.pane.tabs) - 1)
+
+    def ex_tabonly(self, arg):
+        pane = self.pane
+        for i in reversed(range(len(pane.tabs))):
+            if i != pane.tab:
+                pane.close_tab(i)
+
+    # :set options that last for this session
+
+    def runtime_options(self) -> dict:
+        """name -> (current value, function setting it): views, not saved settings."""
+        return {
+            "hex": (preview.HEX["on"], lambda on: self.ex_hex("on" if on else "off")),
+            "plot": (preview.PLOT["on"], lambda on: on != preview.PLOT["on"] and self.cmd_plot(None)),
+            "grid": (self.pane.grid_mode, lambda on: self.ex_grid("on" if on else "off")),
+            "quickview": (self.quickview, lambda on: on != self.quickview and self.cmd_quickview(None)),
+            "linkpanes": (self.link is not None, lambda on: self.ex_linkpanes("on" if on else "off")),
+            "bar": (self.bar.isVisible(), lambda on: on != self.bar.isVisible() and self.ex_bar("")),
+        }
+
     def ex_results(self, arg):
         """:results shows the last result list of this pane again."""
         last = self.pane.last_results
@@ -3583,6 +4094,8 @@ class MainWindow(QMainWindow):
         entry = self.pane.current_entry()
         if entry is None or entry.is_parent:
             return
+        if (results := self.pane.results) and entry.path in results.paths:
+            results.index = results.paths.index(entry.path)  # ]q goes on from here
         folder = os.path.dirname(entry.path)
         if self.pane.results is None and os.path.normcase(folder) == os.path.normcase(self.pane.path):
             self.show_message("Already in its folder")
@@ -3604,6 +4117,11 @@ class MainWindow(QMainWindow):
                         bad.append(f"{key}: {value}")
                         del table[key]
             self.engine.bindings, self.engine.arg_bindings = bindings, arg_bindings
+            try:
+                self.engine.langmap = parse_langmap(str(s.get("langmap") or ""))
+            except ValueError as e:
+                self.engine.langmap = parse_langmap("cyrillic")
+                bad.append(str(e))
             self.engine.reset()
             self.git_program = gitstatus.find_git(s["programs"].get("git", "")) if s.get("git", True) else None
             program = zoxide.find(s["programs"].get("zoxide", ""))
@@ -3623,6 +4141,7 @@ class MainWindow(QMainWindow):
             font, font_warning = monospace_font(s.get("monospace") or {})
             text_font = font if (s.get("monospace") or {}).get("enabled", True) else \
                 monospace_font({})[0]  # quick view text stays monospace
+            NATURAL["on"] = bool(s.get("natural_sort", True))
             for pane in self.panes:
                 pane.configure(s)
                 pane.set_font(font, text_font)
@@ -3641,6 +4160,11 @@ class MainWindow(QMainWindow):
                       self.info_label):
                 w.setFont(font)
             self.terminal.set_font(text_font)
+            self.text_font = text_font
+            for pane in self.panes:
+                if pane.term:
+                    pane.term.set_font(text_font)
+                    pane.term.follow = bool((s.get("vterm") or {}).get("follow", True))
             if "bar" in s:
                 items = [BarItem.from_dict(d) for d in s["bar"] if isinstance(d, dict)]
             else:
@@ -3732,12 +4256,18 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self.save_settings()
         self.terminal.stop()
+        for pane in self.panes:
+            pane.close_terminal()
         remote.REMOTE.close_all()
         super().closeEvent(event)
 
     # Status
 
     def show_message(self, text: str) -> None:
+        # :messages keeps them, but not progress ("Searching… 12 found") or repeats
+        if text and not text.endswith("…") and "(Esc stops)" not in text and (
+                not self.messages or self.messages[-1][1] != text):
+            self.messages.append((time.time(), text))
         self.message_label.setText(text)
         self.message_label.setToolTip(text if len(text) > 60 else "")
 

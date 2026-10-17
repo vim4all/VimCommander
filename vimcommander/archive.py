@@ -1,7 +1,8 @@
 """Read-only browsing of zip files as if they were folders.
 
 A path such as C:\\x\\photos.zip\\2024\\a.jpg points inside photos.zip. Such
-virtual paths can be listed, read and extracted, but not changed.
+virtual paths can be listed, read and extracted. The only change allowed is
+deleting members (remove()), which rewrites the zip.
 """
 
 import os
@@ -157,3 +158,42 @@ def extract_to_temp(path: str) -> str:
         shutil.rmtree(folder, ignore_errors=True)
         raise
     return dest
+
+
+def remove(archive: str, inners: list[str]) -> None:
+    """Delete the files or folders at `inners` (and everything below them) from
+    the zip, by writing a new zip next to it and replacing the old one."""
+    targets = [i.strip("/") for i in inners if i.strip("/")]
+    if not targets:
+        return
+
+    def under(name: str | None, target: str) -> bool:
+        bare = (name or "").rstrip("/")
+        return bare == target or bare.startswith(target + "/")
+
+    def gone(name: str | None) -> bool:
+        return any(under(name, t) for t in targets)
+
+    with zipfile.ZipFile(archive) as zf:
+        infos = zf.infolist()
+        for t in targets:
+            if not any(under(_clean(i.filename), t) for i in infos):
+                raise FileNotFoundError(f"{t} not found in {os.path.basename(archive)}")
+        fd, tmp = tempfile.mkstemp(suffix=".vctmp", dir=os.path.dirname(archive))
+        os.close(fd)
+        try:
+            with zipfile.ZipFile(tmp, "w") as out:
+                out.comment = zf.comment
+                for info in infos:
+                    if gone(_clean(info.filename)):
+                        continue
+                    with zf.open(info) as src, out.open(info, "w", force_zip64=info.file_size > 0x7FFFFFFF) as dst:
+                        shutil.copyfileobj(src, dst, 1024 * 1024)
+        except BaseException:
+            os.remove(tmp)
+            raise
+    try:
+        shutil.copymode(archive, tmp)
+    except OSError:
+        pass
+    os.replace(tmp, archive)

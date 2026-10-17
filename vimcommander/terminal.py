@@ -22,7 +22,7 @@ from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (QDockWidget, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
                                QVBoxLayout, QWidget)
 
-from . import remote
+from . import remote, wsl
 
 WINDOWS = sys.platform == "win32"
 MARK = "__VC_DONE__"
@@ -40,6 +40,8 @@ def default_shell() -> str:
 
 
 def shell_kind(program: str) -> str:
+    if wsl.is_wsl(program):  # bash in WSL, with paths translated both ways
+        return "wsl"
     name = os.path.basename(program).lower()
     if name.startswith("cmd"):
         return "cmd"
@@ -62,7 +64,10 @@ def setup_lines(kind: str) -> list[str]:
     return []
 
 
-def cd_command(kind: str, path: str) -> str:
+def cd_command(kind: str, path: str, distro: str = "") -> str:
+    if kind == "wsl":
+        linux = wsl.to_linux(path, distro)
+        return "cd -- '" + linux.replace("'", "'\\''") + "'" if linux else "true"
     if kind == "cmd":
         return f'cd /d "{path}"'
     if kind == "powershell":
@@ -71,6 +76,8 @@ def cd_command(kind: str, path: str) -> str:
 
 
 def mark_command(kind: str) -> str:
+    if kind == "wsl":  # the distro too: the default one's name isn't known before
+        return f'echo "{MARK}${{WSL_DISTRO_NAME}}|${{PWD}}__"'
     if kind == "cmd":
         return f"echo {MARK}%CD%__"
     if kind == "powershell":
@@ -146,6 +153,7 @@ class Terminal(QDockWidget):
         self.setFocusProxy(self.input)
         self.program = ""
         self.kind = "posix"
+        self.distro = ""  # WSL's distro, when the shell is "wsl" / "wsl:NAME"
         self.cwd = ""
         self.busy = False  # a command is running (its marker hasn't come back)
         self.process: QProcess | None = None
@@ -181,7 +189,12 @@ class Terminal(QDockWidget):
         p.readyReadStandardOutput.connect(self._read)
         p.finished.connect(self._finished)
         p.errorOccurred.connect(self._error)
-        p.start(self.program, start_args(self.kind))
+        if self.kind == "wsl":
+            self.distro = wsl.distro_of(self.program)
+            args = (["-d", self.distro] if self.distro else []) + ["--cd", cwd, "-e", "bash", "-s"]
+            p.start("wsl.exe", args)
+        else:
+            p.start(self.program, start_args(self.kind))
         if not p.waitForStarted(5000):  # lines written before the start would be lost
             return
         for line in setup_lines(self.kind):
@@ -307,7 +320,7 @@ class Terminal(QDockWidget):
             self.start(self.program, path)
             return
         self.cwd = path
-        self._write(cd_command(self.kind, loc.path if loc else path))
+        self._write(cd_command(self.kind, loc.path if loc else path, self.distro))
         self._write(mark_command(self.kind))
         self.busy = True
         self._show_prompt()
@@ -357,6 +370,10 @@ class Terminal(QDockWidget):
 
     def _done(self, cwd: str) -> None:
         self.busy = False
+        if self.kind == "wsl":
+            distro, _, linux = cwd.partition("|")
+            self.distro = distro or self.distro
+            cwd = wsl.to_windows(linux, self.distro) or self.cwd
         if self.location and cwd:
             cwd = self.location.url(cwd)
         if cwd and os.path.normcase(cwd) != os.path.normcase(self.cwd):

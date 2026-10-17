@@ -45,6 +45,25 @@ class DescriptionsTest(unittest.TestCase):
         self.assertFalse(actions.needs_argument("tabnew"))
 
 
+class ResolveTest(unittest.TestCase):
+    """: commands may be shortened as in vim."""
+
+    def test_abbreviations(self):
+        from vimcommander.app import MainWindow
+        names = {m[3:] for m in dir(MainWindow) if m.startswith("ex_")}
+        for typed, name in (("se", "set"), ("sh", "shell"), ("d", "delete"), ("dis", "display"), ("tabn", "tabnext"),
+                            ("tabp", "tabprevious"), ("pdfe", "pdfextract"), ("bulk", "bulkrename"),
+                            ("mes", "messages"), ("norm", "normal"), ("cope", "copen"), ("q", "q"), ("e", "e")):
+            self.assertEqual(actions.resolve(typed, names), (name, []), typed)
+        name, could_be = actions.resolve("tab", names)
+        self.assertIsNone(name)
+        self.assertIn("tabnew", could_be)
+        self.assertEqual(actions.resolve("nosuch", names), (None, []))
+        for full, short in actions.SHORTEST.items():  # every short form names a real command
+            self.assertIn(short, full)
+            self.assertIn(full, names)
+
+
 class BulkTest(unittest.TestCase):
     def test_round_trip(self):
         text = bulk_text(["a", "b", "c"]).replace("\tb\n", "\tB\n").replace("3\tc\n", "")

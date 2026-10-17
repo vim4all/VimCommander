@@ -118,3 +118,94 @@ class DiffTest(unittest.TestCase):
         left, right = textdiff.changed_spans("value = 10", "value = 12")
         self.assertEqual((left, right), ([(9, 10)], [(9, 10)]))
         self.assertEqual(textdiff.changed_spans("abc", "xyz"), ([], []))
+
+
+class PdfMergeTest(unittest.TestCase):
+    def setUp(self):
+        try:
+            import pypdfium2 as pdfium
+        except ImportError:
+            self.skipTest("needs pypdfium2")
+        self.pdfium = pdfium
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+
+    def make(self, name, pages, width=200):
+        pdf = self.pdfium.PdfDocument.new()
+        for _ in range(pages):
+            pdf.new_page(width, 300)
+        path = os.path.join(self.dir.name, name)
+        pdf.save(path)
+        pdf.close()
+        return path
+
+    def widths(self, path):
+        pdf = self.pdfium.PdfDocument(path)
+        try:
+            return [round(pdf[i].get_width()) for i in range(len(pdf))]
+        finally:
+            pdf.close()
+
+    def test_merge_in_order(self):
+        a, b = self.make("0_a.pdf", 2, 100), self.make("1_b.pdf", 1, 200)
+        dest = os.path.join(self.dir.name, "all.pdf")
+        job = Job("pdfmerge", [a, b], dest)
+        job._run()
+        self.assertEqual(self.widths(dest), [100, 100, 200])
+        self.assertEqual(job.undo, [("created", dest)])
+        self.assertFalse([f for f in os.listdir(self.dir.name) if f.endswith(".vctmp")])
+
+    def test_broken_source_saves_nothing(self):
+        a = self.make("a.pdf", 1)
+        bad = os.path.join(self.dir.name, "bad.pdf")
+        write(bad, "not a pdf")
+        dest = os.path.join(self.dir.name, "all.pdf")
+        job = Job("pdfmerge", [a, bad], dest)
+        errors = []
+        job.finished.connect(lambda msg, errs: errors.extend(errs))
+        job._run()
+        self.assertFalse(os.path.exists(dest))
+        self.assertEqual(job.undo, [])
+        self.assertTrue(errors and errors[0].startswith("bad.pdf"))
+
+    def test_page_lists(self):
+        from vimcommander.pdftools import parse_pages
+        self.assertEqual(parse_pages("3", 5), [2])
+        self.assertEqual(parse_pages("2-4", 5), [1, 2, 3])
+        self.assertEqual(parse_pages("1, 4-", 5), [0, 3, 4])
+        self.assertEqual(parse_pages("-2,$", 5), [0, 1, 4])
+        self.assertEqual(parse_pages("5-3", 5), [4, 3, 2])  # backwards
+        for bad in ("0", "6", "2-9", "a", "1-2-3", ","):
+            with self.assertRaises(ValueError, msg=bad):
+                parse_pages(bad, 5)
+
+    def test_extract_pages(self):
+        widths = [100, 110, 120, 130]
+        pdf = self.pdfium.PdfDocument.new()
+        for w in widths:
+            pdf.new_page(w, 300)
+        src = os.path.join(self.dir.name, "doc.pdf")
+        pdf.save(src)
+        pdf.close()
+        dest = os.path.join(self.dir.name, "doc p4,2-3.pdf")
+        job = Job("pdfextract", [(src, dest)])
+        job.pages = "4,2-3"
+        job._run()
+        self.assertEqual(self.widths(dest), [130, 110, 120])
+        self.assertEqual(job.undo, [("created", dest)])
+        errors = []
+        job = Job("pdfextract", [(src, os.path.join(self.dir.name, "x.pdf"))])
+        job.pages = "9"
+        job.finished.connect(lambda msg, errs: errors.extend(errs))
+        job._run()
+        self.assertTrue(errors and "no page 9" in errors[0])
+        job = Job("pdfextract", [(src, dest)])  # dest exists now: only :pdfextract! replaces it
+        job.pages = "1"
+        job._run()
+        self.assertEqual(self.widths(dest), [130, 110, 120])
+        job = Job("pdfextract", [(src, dest)])
+        job.pages, job.overwrite = "1", True
+        job._run()
+        self.assertEqual(self.widths(dest), [100])
+        self.assertFalse(os.path.exists(os.path.join(self.dir.name, "x.pdf")))
+        self.assertFalse([f for f in os.listdir(self.dir.name) if f.endswith(".vctmp")])

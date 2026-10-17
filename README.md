@@ -14,34 +14,13 @@ VimCommander combines the layout of Total Commander with the keyboard of [vifm](
 - [Getting started](#getting-started)
 - [Key reference](#key-reference)
 - [Commands](#commands)
-- [Launch bar](#launch-bar)
-- [Right-click menu](#right-click-menu)
-- [Which-key and command palette](#which-key-and-command-palette)
-- [Find files](#find-files)
-- [Result lists](#result-lists)
-- [Search in files](#search-in-files)
-- [Bulk rename](#bulk-rename)
-- [Compare and synchronize](#compare-and-synchronize)
-- [Side-by-side diff](#side-by-side-diff)
-- [Activity calendar](#activity-calendar)
-- [Shelf](#shelf)
-- [Freeing space](#freeing-space)
-- [Git](#git)
-- [Linked panes](#linked-panes)
-- [Miller columns](#miller-columns)
-- [Folder rules](#folder-rules)
-- [Sessions](#sessions)
-- [Thumbnail grid](#thumbnail-grid)
-- [Terminal](#terminal)
-- [Share with a phone](#share-with-a-phone)
-- [SSH folders](#ssh-folders)
-- [FTP folders](#ftp-folders)
-- [Jobs and the copy queue](#jobs-and-the-copy-queue)
-- [Global commands](#global-commands)
-- [Folder graph](#folder-graph)
-- [Zip files](#zip-files)
-- [zoxide](#zoxide)
-- [Drag and drop](#drag-and-drop)
+- **[Finding files and folders](#finding-files-and-folders)**: [Find files](#find-files) · [Result lists](#result-lists) · [Search in files](#search-in-files) · [zoxide](#zoxide) · [Activity calendar](#activity-calendar) · [Which-key and command palette](#which-key-and-command-palette)
+- **[Working with files](#working-with-files)**: [Bulk rename](#bulk-rename) · [Global commands](#global-commands) · [Shelf](#shelf) · [Zip files](#zip-files) · [PDF tools](#pdf-tools) · [Folder rules](#folder-rules) · [Freeing space](#freeing-space) · [Jobs and the copy queue](#jobs-and-the-copy-queue) · [Drag and drop](#drag-and-drop) · [Right-click menu](#right-click-menu) · [Launch bar](#launch-bar)
+- **[Viewing files](#viewing-files)**: [Quick view](#quick-view) · [CSV plot](#csv-plot) · [Firmware memory map](#firmware-memory-map) · [Folder graph](#folder-graph)
+- **[Panes and layout](#panes-and-layout)**: [Thumbnail grid](#thumbnail-grid) · [Miller columns](#miller-columns) · [Linked panes](#linked-panes) · [Sessions](#sessions)
+- **[Comparing folders and files](#comparing-folders-and-files)**: [Compare and synchronize](#compare-and-synchronize) · [Side-by-side diff](#side-by-side-diff) · [Git](#git)
+- **[Terminal](#terminal)**: [Terminal pane](#terminal-pane)
+- **[Servers and sharing](#servers-and-sharing)**: [SSH folders](#ssh-folders) · [FTP folders](#ftp-folders) · [Share with a phone](#share-with-a-phone)
 - [Configuration](#configuration)
 - [Building a standalone app](#building-a-standalone-app)
 - [Development](#development)
@@ -51,55 +30,43 @@ VimCommander combines the layout of Total Commander with the keyboard of [vifm](
 
 ## Features
 
-- **Two panes**, side by side, each with its own folder, sorting and history. The active pane has a highlighted header.
-- **Modal vim keys**: normal and visual mode, counts (`5j`, `3yy`, `12G`), multi-key sequences (`gg`, `dd`, `zz`, `Ctrl-w l`) and keys that take a character (`ma`, `'a`, `fx`).
-- **Vim grammar**: operators with motions (`yj`, `d3j`, `yG`), `.` to repeat the last change, `@:` to repeat the last command, `:set` options, relative line numbers, and command-line history and editing keys.
-- **Registers and macros**: `"ayy` / `"ap` named registers, `"+yy` / `"+p` to copy and paste files with Explorer and other file managers, `qa…q` / `@a` macros, and `u` / `Ctrl-r` undo and redo.
-- **Vim search**: `/` and `?` with regular expressions and smartcase, `n`/`N`, `*`/`#`, highlighted matches, and a `=` filter that shows only matching names.
-- **Copy, cut and paste with registers**: `yy` / `dd` / `p` between any folders, plus Total Commander's `F5` / `F6` for "copy/move to the other pane".
-- **Background file operations with progress**: copying or moving large files doesn't freeze the window. A progress dialog with a Cancel button appears for longer operations. When a name already exists, you choose **Overwrite**, **Keep both** (`photo (1).jpg`), **Skip** or **Cancel**, optionally for all clashes.
-- **Undo**: `u` reverses the last copy, move, rename, new folder or move to trash.
-- **Safe delete**: `Del` moves files to the system trash (Recycle Bin on Windows) after asking. `Shift-Del` deletes permanently.
-- **Right-click menu**: on Windows, the real Explorer menu (Open with, Send to, 7-Zip, Git, Properties…) plus a few VimCommander items. On Linux and macOS, VimCommander's own menu.
-- **Tabs** in each pane, a **drive menu** (`Alt-F1` / `Alt-F2` or the drive button), and free space in the status bar.
-- **Quick view** (`Ctrl-q`): the other pane previews text files, images, PDFs and folders as you move. Markdown notes are rendered, and their Obsidian `[[links]]` and embedded images work: click a link to go to that note. CSV / TSV files show as a table with the row and column count; hover a column header for its summary (min, max, mean, or distinct values, and empty cells). Binary files show as a hex dump (`:hex` shows every file that way).
-- **Which-key and command palette**: pause after a prefix like `g`, `z`, `"` or `Ctrl-w` and the possible next keys are listed; `Ctrl-Shift-p` finds any action or command by typing part of its name.
-- **Fuzzy file finder** (`Ctrl-p`): find any file below the current folder by a few letters, fzf style, ranked with your zoxide history, with a live preview.
-- **Result lists**: `:find`, `:grep`, the file finder and the activity calendar can fill a pane with files from many folders, where tagging, copying, moving, renaming and trashing work as in any folder.
-- **Search in files** (`g/` or `:grep`): find text inside files as you type, see the matching lines in context, and open the editor at the line.
-- **Bulk rename in your editor** (`:bulkrename`): edit many names as text, like vidir; deleting a line moves that item to the trash.
-- **Compare and synchronize folders** (`:compare`, `:synchronize`), like Total Commander's "Synchronize dirs".
-- **Side-by-side diff** (`gd` or `:diffthis`) of two text files, vimdiff style, with `]c` / `[c` to jump between changes.
-- **Shelf** (`zs`): collect files from different folders in a side panel, then copy, move or zip them all at once, or drag them into another app.
-- **Recent files**: `:recent` lists the files you opened from VimCommander, newest first, as a result list; `:recent changed 3` lists the files changed below the current folder in the last 3 days.
-- **Free space**: `:reclaim` lists rebuildable caches (`node_modules`, `__pycache__`, build folders…) and big old files; `:dupes` finds duplicate files and tags all but the newest copy.
-- **Git awareness**: changed, new and ignored files are colored, the branch is in the path header, `:git changed` lists every changed file, and `gd` shows a file next to its last committed version.
-- **Linked panes** (`:linkpanes`): browse two mirror trees (a project and its backup) together, with what only one side has marked.
-- **Miller columns** (`:set columns`): parent folder, list and preview side by side in each pane, like ranger.
-- **Folder rules** (`:rules`): "PDFs in Downloads older than a week go to Documents/PDF", previewed before anything moves.
-- **Sessions** (`:mksession` / `:session`): save and reopen both panes' tabs, result lists and the shelf by name.
-- **Thumbnail grid** (`zi`): photos as thumbnails, folders as their first picture, with the same vim keys, tags and operations.
-- **Terminal panel** (``Ctrl-` ``): a shell under the panes that follows the active pane's folder, and the pane follows its `cd`.
-- **FTP folders** (`:ftp host`): FTP and FTPS servers open in a pane too, with the same copy, move, edit and rename keys.
-- **Copy queue** (`:jobs`): big copies and moves run one after another instead of all at once; pause, resume, cancel or move a job to the front in the jobs panel.
-- **`:g/pattern/command`**: vim's global command over file names: `:g/\.log$/d` trashes the log files, `:v/\.jpg$/` tags everything that isn't a JPEG.
-- **SSH folders** (`:ssh user@host`): a folder on a server opens in a pane like a local one; copy and move across with `F5` / `F6` or drag and drop, edit remote files in your editor (saving uploads them), get a shell on the server in the terminal panel, and `:mirror` a local folder to the server.
-- **Share with a phone** (`:share`): scan a QR code to download the tagged files on your phone, or send photos from the phone into the current folder. No app or cloud needed.
-- **Activity calendar** (`gr`): a GitHub-style heatmap of when files changed, and the recent files day by day.
-- **Folder graph**, Obsidian style: in quick view a folder shows as a graph of its subfolders 1–3 levels deep, with files grouped by extension and node size by disk usage. A **sunburst** or **treemap** shows disk usage, a **timeline** shows when each subfolder's files changed, a **types** view shows what each subfolder is made of, a **notes mode** draws the links between Markdown notes, like Obsidian's graph view, and a **code mode** draws the imports between source files, so a project's hub files stand out.
-- **Zip files as folders**: open a `.zip` with `Enter` and browse it; copy files out with `F5` or `yy` / `p`.
-- **zoxide integration**: every folder you open is recorded in [zoxide](https://github.com/ajeetdsouza/zoxide), so `:z proj` jumps there, and `gz` picks from the list. The database is shared with `z` in your shell.
-- **Find files** below the current folder with `:find *.log` (as a result list), and add up **folder sizes** with `gs`.
-- **Rename many files at once**: `:rename photo_{n:3}{ext}` or `:s/old/new/g` on the tagged files.
-- **Drag and drop in both directions**, between the panes and with Explorer, Finder, Nautilus, browsers, editors and so on.
-- **Launch bar** with buttons for favourite folders and programs, like Total Commander's button bar. Press them with `g1`…`g9`, or drop files on a program to open them with it.
-- **Marks and history**: bookmark a file with `ma` and return with `'a`, even after a restart. Step back and forward through visited folders with `Ctrl-o` / `Ctrl-i`.
-- **Search and jump**: incremental search with `/` (`n` / `N` for next and previous), and `fx` to jump to the next name starting with `x`.
-- **Selection by pattern**: `:select *.jpg`, `T` to invert, or `v` for a visual range.
-- **Live refresh**: panes reload when files change on disk.
-- **Remembers your session**: folders, launch bar and marks are saved between runs.
-- **One config file** for options, programs (editor, viewer, terminal, per-extension "open with"), your own key maps and `:` commands. It reloads as soon as you save it.
-- **Standalone build**: `build.py` makes an app that starts without a terminal window (`VimCommander.exe` on Windows).
+**Vim at the core**
+
+- **Modal keys**: normal and visual mode, counts (`5j`, `3yy`, `12G`), sequences (`gg`, `dd`, `Ctrl-w l`), keys that take a character (`ma`, `'a`, `fx`), and a `langmap` so they work in a Ukrainian or Russian layout too.
+- **Vim grammar**: operators with motions (`yj`, `d3j`, `yG`), `.` and `@:` to repeat, registers (`"ayy`, `"+p` for the system clipboard), macros (`qa…q`, `@a`), `u` / `Ctrl-r`, marks, `Ctrl-o` / `Ctrl-i`, `''`.
+- **Vim commands**: `:set` options with relative line numbers, `/` search with smartcase and highlights, `:s/old/new/g` on names, `:g/pattern/cmd`, a quickfix-style [result list](#result-lists) with `]q` / `[q` and `:cdo`, command-line history and editing keys.
+
+**Files**
+
+- **Two panes** with tabs, a drive menu, Total Commander's `F5` / `F6`, and background copies with progress, a [queue](#jobs-and-the-copy-queue) and name-clash choices (overwrite, keep both, skip).
+- **Safe by default**: `Del` uses the system trash, and `u` undoes copies, moves, renames, new files and trashing.
+- **Renaming**: `cw`, patterns (`:rename photo_{n:3}{ext}`), `:s`, and [bulk rename](#bulk-rename) in your editor.
+- **Collect and act**: the [shelf](#shelf), [folder rules](#folder-rules), [zip files](#zip-files) as folders, [PDF tools](#pdf-tools) and checksums.
+- **Desktop integration**: [drag and drop](#drag-and-drop) both ways, the Explorer [right-click menu](#right-click-menu), a [launch bar](#launch-bar), live refresh, natural sort (`run2` before `run10`).
+
+**Finding things**
+
+- [Fuzzy file finder](#find-files) (`Ctrl-p`), [search in files](#search-in-files) (`g/`), `:find`, [zoxide](#zoxide) jumps (`:z proj`), recent files and an [activity calendar](#activity-calendar) (`gr`).
+- [Which-key and a command palette](#which-key-and-command-palette): pause after `g`, `z` or `Ctrl-w` to see what comes next.
+
+**Seeing what's there**
+
+- [Quick view](#quick-view) (`Ctrl-q`) of text, images, PDFs, Markdown notes, CSV tables or [plots](#csv-plot), Jupyter notebooks, STM32CubeMX projects, [firmware memory maps](#firmware-memory-map) and hex.
+- [Folder graphs](#folder-graph): tree, sunburst and treemap of disk usage, a timeline, file types, Obsidian-style note links and code imports.
+- [Thumbnail grid](#thumbnail-grid), [Miller columns](#miller-columns), [git](#git) status colors, [free space](#freeing-space) finders (`:reclaim`, `:dupes`).
+
+**Comparing**
+
+- [Compare and synchronize](#compare-and-synchronize) folder trees, `:mirror`, a vimdiff-style [side-by-side diff](#side-by-side-diff), and [linked panes](#linked-panes) for mirror trees.
+
+**Terminals and servers**
+
+- A [terminal panel](#terminal) that follows the pane, and a full [terminal pane](#terminal-pane) (`Ctrl-w t`) with PowerShell, cmd, bash or WSL.
+- [SSH](#ssh-folders) and [FTP](#ftp-folders) folders that work like local ones, sshfs mounts, and [sharing with a phone](#share-with-a-phone) by QR code.
+
+**Yours to set up**
+
+- One hand-editable [config file](#configuration) for options, colors and themes, programs, your own keys and `:` commands, and [sessions](#sessions). A [standalone build](#building-a-standalone-app) runs without Python.
 
 ## Screenshots
 
@@ -222,19 +189,27 @@ Keys work in the file panes. Unless noted, a count before a key repeats it or ap
 | `Alt-F1` / `Alt-F2` | drive menu for the left / right pane (also: click the drive button left of the path) |
 | `Ctrl-t` | new tab with the same folder |
 | `gt` / `gT` | next / previous tab; `3gt` goes to tab 3 |
+| `ma` | set mark `a` (any letter) on the file under the cursor |
+| `'a` or `` `a `` | jump to mark `a` |
+
+### Views and tools
+
+| Keys | Action |
+|---|---|
 | `gz` | jump to a folder from zoxide's list (see [zoxide](#zoxide)) |
 | `Ctrl-q` | quick view: the other pane previews the item under the cursor (a folder, or `..` for the current folder, shows as a [graph](#folder-graph)); press again to close |
+| `zp` | quick view shows CSV files as a [plot](#csv-plot) of their numbers, or as a table again (turns quick view on) |
 | `Ctrl-p` | [find files](#find-files) below this folder, by a few letters of their name |
 | `g/` | [search inside the files](#search-in-files) below this folder |
 | `gf` | in a [result list](#result-lists): open the file's folder with the cursor on it |
+| `]q` / `[q` | the next / previous item of the pane's [result list](#result-lists), in its own folder with the cursor on it, like vim's `:cnext`; `3]q` goes three on |
 | `gr` | the [activity calendar](#activity-calendar) of this folder |
 | `Ctrl-Shift-p` | the [command palette](#which-key-and-command-palette): every action and command, by name |
 | `gG` | open the [graph](#folder-graph) of the folder under the cursor (or the current folder) in its own window |
 | `za` | show / hide hidden files |
 | `zi` | [thumbnail grid](#thumbnail-grid) / list for this pane |
 | ``Ctrl-` `` | show the [terminal](#terminal) and go to it; from the terminal, hide it |
-| `ma` | set mark `a` (any letter) on the file under the cursor |
-| `'a` or `` `a `` | jump to mark `a` |
+| `Ctrl-w t` | a [terminal pane](#terminal-pane): a real terminal in the other pane, in this folder (again: go into it) |
 | `g1` … `g9` | press launch bar button 1–9 |
 
 ### Selecting
@@ -260,6 +235,7 @@ Tagged items are highlighted. File operations act on the tagged items, or on the
 | `dd` | cut the item; `d` in visual mode |
 | `y` / `d` + motion | yank / cut from the cursor to where the motion goes: `yj`, `d3j`, `yG`, `ygg`, `dk`, `y<C-d>`, `yH`. Counts multiply: `2d3j` cuts 7 rows (the cursor's and 6 more) |
 | `.` | repeat the last change: paste, cut, trash, delete, `F5`, `F6`, or a `:rename` / `:s` / `:mkdir` / `:touch`. A count replaces the old one |
+| `&` | repeat the last `:s/old/new/` on the tagged items (or the cursor's); `:&` too |
 | `@:` | repeat the last `:` command; `3@:` three times |
 | `p` | paste the yanked or cut items into this pane's folder |
 | `F5` / `F6` | copy / move to the other pane |
@@ -294,6 +270,12 @@ Tagged items are highlighted. File operations act on the tagged items, or on the
 
 Type `:` to open the command line. `Enter` runs the command; `Esc` cancels. `Tab` / `Shift-Tab` cycle through completions: command names, and file or folder names for `:cd`, `:mkdir`, `:touch`, `:rename`, `:tabnew`, `:find` and `:bar add`.
 
+As in vim:
+
+- **Commands can be shortened** to any start that is unique: `:bulk` = `:bulkrename`, `:pdfe` = `:pdfextract`. Vim's usual short forms win over other commands that start the same way: `:se` = `:set`, `:sh` = `:shell`, `:e` = `:edit`, `:d` = `:delete`, `:y` = `:yank`, `:pu` = `:put`, `:tabn` = `:tabnext`, `:cn` = `:cnext`. An ambiguous start (`:tab`) lists what it could be.
+- **`!` forces**: `:delete!` deletes instead of trashing, `:rename! NAME` replaces an existing NAME (the old one goes to the trash), `:pdfextract! … NAME` replaces NAME, `:sort!` reverses.
+- **`:messages`** shows what the status bar said lately, with times.
+
 Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 
 | Keys | Action |
@@ -302,6 +284,137 @@ Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 | `Ctrl-w` / `Ctrl-u` | delete the word / everything before the cursor |
 | `Ctrl-b` / `Ctrl-e` | go to the start / end of the line |
 | `Ctrl-r Ctrl-f` / `Ctrl-r Ctrl-p` / `Ctrl-r Ctrl-d` | insert the file name under the cursor / its full path / the current folder |
+
+### Folders and files
+
+| Command | Action |
+|---|---|
+| `:cd [PATH]` | change folder (relative to the current one; no path = home) |
+| `:mkdir NAME` | create a folder (nested paths allowed) and put the cursor on it |
+| `:touch NAME` | create an empty file |
+| `:drives` | drive menu for the active pane |
+| `:e [FILE]`, `:edit [FILE]` | open FILE (or the file under the cursor) in `programs.editor` |
+| `:filter [PATTERN]` | same as `=`; no pattern clears the filter |
+| `:sort name\|ext\|size\|time`, `:sort!` | sort this pane; `:sort! size` or `:sort -size` reverses |
+| `:delete`, `:d` / `:delete!` | move the tagged items (or the cursor's) to the trash / delete them for good, like `Del` / `Shift-Del` |
+| `:yank [x]`, `:y` / `:put [x]`, `:pu` | yank the tagged items (or the cursor's) / paste here; `x` = a register, as with `"xyy` and `"xp` |
+| `:normal KEYS`, `:norm` | run KEYS in the pane as if typed: `:normal 3jyy`, special keys as `<C-d>`, `<CR>` |
+| `:pwd` | show this pane's folder |
+| `:select PATTERN` | tag items matching a shell pattern, e.g. `:select *.jpg` |
+| `:unselect PATTERN` | untag matching items |
+| `:sync` | open this pane's folder in the other pane too |
+| `:42` | go to row 42 |
+
+### Renaming
+
+| Command | Action |
+|---|---|
+| `:rename NAME` | rename the item under the cursor |
+| `:rename PATTERN` | rename every tagged item: `{name}` = name without extension, `{ext}` = extension with its dot, `{n}` = 1, 2, 3…, `{n:3}` = 001, 002… Example: `:rename holiday_{n:3}{ext}`. `cw` with tagged items starts this for you |
+| `:g/PATTERN/[CMD]`, `:g!/…`, `:v/…` | [global command](#global-commands): tag the items whose names match (`:g!` and `:v`: don't match), then run CMD on them |
+| `:s/OLD/NEW/[g][i]` | replace a regular expression in the names of the tagged items (or the item under the cursor). `g` = every match, `i` = ignore case, `&` = the match, `\1` = a group. Example: `:s/ /_/g` |
+| `:bulkrename`, `:br` | [rename](#bulk-rename) the tagged items (or all items) as text, in a dialog or your editor |
+
+### Finding and result lists
+
+| Command | Action |
+|---|---|
+| `:find PATTERN` | search the names in this folder and all subfolders, `*.log` or plain text to match part of a name; the pane shows the matches as a [result list](#result-lists) (`Esc` stops a long search) |
+| `:grep [TEXT]` | [search inside the files](#search-in-files) below this folder (same as `g/`) |
+| `:results`, `:res` | show the pane's last [result list](#result-lists) again |
+| `:branch` | branch view, same as `gb` |
+| `:cdo !COMMAND`, `:cdo COMMAND` | for each item of the [result list](#result-lists) (the tagged ones, or all): run a shell command in the item's folder with `%f` = the item (`:cdo !dos2unix %f`), or a `:` command with the cursor on the item (`:cdo pdfextract 1`) |
+| `:cnext [N]`, `:cn` / `:cprevious [N]`, `:cp` | same as `]q` / `[q` |
+| `:copen` / `:cclose` | show the pane's result list (same as `:results`) / leave it |
+| `:clist` | the items of the result list, numbered; `>` marks the one `]q` went to last |
+| `:colder [N]` / `:cnewer [N]` | the result list before / after this one: each pane keeps its last 10, like vim's quickfix lists |
+| `:recent`, `:recent [changed] DAYS`, `:recent clear` | files you opened (Enter, `:e`, F3/F4…), newest first, as a result list; or the files changed below this folder in the last DAYS days (default 7), newest first |
+| `:files`, `:palette`, `:activity` | same as `Ctrl-p`, `Ctrl-Shift-p`, `gr` |
+| `:z KEYWORDS` | jump to the best zoxide match, like `z` in a shell; `:z` alone = home. `Tab` cycles through the matches |
+| `:zi [KEYWORDS]` | pick from zoxide's list, same as `gz` |
+
+### Comparing and git
+
+| Command | Action |
+|---|---|
+| `:diffthis [FILE]` | [diff](#side-by-side-diff) two files: tagged, under both cursors (`gd`), or the cursor's file and FILE |
+| `:git`, `:git changed`, `:git diff` | [git](#git): branch and counts / every changed file as a result list / the file under the cursor next to its last commit |
+| `:linkpanes [on\|off]`, `:link` | [link the panes](#linked-panes): both go into the same subfolders |
+| `:mirror` | make the other pane's folder a copy of this one: copy what is new or changed, delete what only the other side has, after a [preview](#compare-and-synchronize) |
+| `:compare`, `:diff` | [tag the differences](#compare-and-synchronize) between the two panes' folders |
+| `:synchronize` | [compare the panes' folder trees](#compare-and-synchronize) and copy what differs |
+
+### Archives, PDFs, checksums and space
+
+| Command | Action |
+|---|---|
+| `:hash [ALGO]` | write a checksum file (`md5`, `sha1`, `sha256` default, `sha512`) for the tagged items, folders included, in the `sha256sum` / Total Commander format; `:hash check`, or `:hash` with the cursor on a `.sha256` etc., verifies one and lists files that differ or are missing |
+| `:zip [NAME]` | pack the tagged items (or the cursor's) into `NAME.zip` in this folder; `u` removes it again |
+| `:pdfextract PAGES [NAME]` | copy pages of the PDF under the cursor into a new PDF next to it: `3`, `2-5`, `1,4,7-` (7 to the end), `-3` (1 to 3), `9-7` (backwards), `$` = the last page; they come out in the order written. No NAME = `<name> pPAGES.pdf`; with several PDFs tagged, each gets its own. `u` removes the result |
+| `:pdfmerge [NAME]` | join the tagged PDFs into `NAME.pdf` in this folder, in the order the pane shows them (so `0_…`, `1_…` prefixes or a sort set the order); no NAME = `<first file> merged.pdf`. If any PDF can't be read nothing is saved; `u` removes the result |
+| `:reclaim [SIZE] [DAYS]` | [caches and big old files](#freeing-space) below this folder, biggest first (default: files over 100M unchanged for 180 days) |
+| `:dupes [MINSIZE]`, `:dupes tag [old]` | [duplicate files](#freeing-space) as a result list; in it, tag all but the newest (or oldest) copy of each set |
+| `:rules` | preview and apply the [folder rules](#folder-rules) |
+
+### Views and panels
+
+| Command | Action |
+|---|---|
+| `:obsidian` | open the note (or folder) under the cursor in Obsidian |
+| `:shelf [add\|copy\|move\|zip [NAME]\|list\|clear]` | the [shelf](#shelf); no argument shows / hides it |
+| `:grid [on\|off\|SIZE]` | [thumbnail grid](#thumbnail-grid) for this pane (same as `zi`), or the thumbnail size in pixels |
+| `:jobs [pause\|resume\|cancel]` | show / hide the [jobs panel](#jobs-and-the-copy-queue), or pause, resume or cancel every job |
+| `:hex [on\|off]` | quick view shows every file as a hex dump (binary files always do); no argument toggles |
+| `:graph` | open the graph window (same as `gG`) |
+| `:graph 1\|2\|3`, `size\|count`, `tree\|sunburst\|treemap\|timeline\|types\|notes\|code`, `on\|off` | graph depth, what node size shows, the mode, graph in quick view on or off; several at once (`:graph 3 count`). Saved |
+| `:bar` | show / hide the launch bar |
+| `:bar add [PATH]` | add a folder or program to the launch bar (default: current folder) |
+
+### Servers and sharing
+
+| Command | Action |
+|---|---|
+| `:mount`, `:umount` | in an SSH folder: [mount it with sshfs](#terminal-pane) in the terminal pane's Linux (WSL on Windows) at `~/mnt/HOST` / unmount it |
+| `:ftp [user@]host[:port][/path]`, `:ftp close` | open a folder on an [FTP server](#ftp-folders) in this pane (`ftps://host` = FTP over TLS); close all connections |
+| `:ssh [user@]host[:path]`, `:ssh close` | open a folder on an [SSH server](#ssh-folders) in this pane (`Tab` completes hosts from `~/.ssh/config`); close all connections |
+| `:share`, `:share stop` | [share](#share-with-a-phone) the tagged items (or the cursor's) with a phone by QR code; on `..` only receive files |
+
+### Shells and terminals
+
+| Command | Action |
+|---|---|
+| `:terminal [COMMAND]`, `:term` | show the [terminal](#terminal); with a command, run it there |
+| `:vterm [SHELL]`, `:vterm off` | a [terminal pane](#terminal-pane) in the other pane: `wsl`, `wsl:NAME`, `pwsh`, `cmd`, `bash` or a command line; `off` closes it |
+| `:!COMMAND` | run a shell command in the current folder; `%d` `%o` `%f` `%s` are filled in (quoted), `%%` is a literal `%` |
+| `:shell` | open a terminal in the current folder |
+
+### Tabs, sessions, marks, registers and undo
+
+| Command | Action |
+|---|---|
+| `:mksession NAME`, `:session [NAME]`, `:delsession NAME` | save, open (or list) and delete [sessions](#sessions) |
+| `:tabnew [PATH]`, `:tabclose` | open a tab (in PATH or the current folder) / close the current one |
+| `:tabnext [N]`, `:tabn` / `:tabprevious`, `:tabp` | the next tab (or tab N) / the previous one, like `gt` / `gT` |
+| `:tabfirst` / `:tablast` / `:tabonly` | the first / last tab / close the pane's other tabs |
+| `:undo`, `:redo` | same as `u` / `Ctrl-r` |
+| `:undolist` | list what can be undone and redone |
+| `:reg`, `:registers`, `:di`, `:display` | list the registers, the clipboard's files and the macros |
+| `:tabs` | list both panes' tabs |
+| `:tabmove [N]` | move the tab after tab N (`0` = first, nothing = last, `+1` / `-1` = one step) |
+| `:marks` | list marks |
+| `:delmarks [LETTERS]` | delete the given marks, or all marks |
+
+### Options, help and quitting
+
+| Command | Action |
+|---|---|
+| `:q`, `:quit`, `:x`, `:wq` | close the current tab; quit if it's the pane's only tab |
+| `:messages`, `:mes` | the status bar's recent messages, with times |
+| `:qa`, `:qall`, `:quitall`, `:wqa`, `:xa` | quit |
+| `:set OPTION` | vim options, see below: `:set rnu`, `:set nonu`, `:set nu!` (toggle), `:set ic?` (show), several at once; `:set` alone lists them. Changes are saved |
+| `:noh`, `:nohlsearch` | clear the search highlight until the next search |
+| `:config` | open the config file in the editor; changes apply when you save it |
+| `:help` | show the key reference |
 
 ### Options for :set
 
@@ -316,79 +429,219 @@ Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 | `hidden` | off | show hidden files (same as `za`) |
 | `columns` | off | [Miller columns](#miller-columns): parent folder, list and preview in each pane |
 | `git` | on | [git](#git) status colors and the branch in the header |
+| `natural` | on | numbers in names sort by value: `run2` before `run10`. Off: plain text order |
 | `clipboard` (`cb`) | `""` | `unnamedplus` (or `unnamed`): plain `y`, `d` and `p` use the system clipboard, as in vim. `:set clipboard=` turns it off |
 
-`:set` saves them to the config file, where they are the top-level `number`, `relativenumber`, `ignorecase`, `smartcase`, `hlsearch`, `wrapscan`, `clipboard`, `show_hidden`, `columns` and `git` options.
+These switch views for this session only (they aren't saved), so `:set plot!`, `:set grid?` and `:set noqv` work like any option:
 
-| Command | Action |
+| Option (short) | Same as |
 |---|---|
-| `:q`, `:quit`, `:x`, `:wq` | close the current tab; quit if it's the pane's only tab |
-| `:qa`, `:qall`, `:quitall`, `:wqa`, `:xa` | quit |
-| `:cd [PATH]` | change folder (relative to the current one; no path = home) |
-| `:mkdir NAME` | create a folder (nested paths allowed) and put the cursor on it |
-| `:touch NAME` | create an empty file |
-| `:rename NAME` | rename the item under the cursor |
-| `:rename PATTERN` | rename every tagged item: `{name}` = name without extension, `{ext}` = extension with its dot, `{n}` = 1, 2, 3…, `{n:3}` = 001, 002… Example: `:rename holiday_{n:3}{ext}`. `cw` with tagged items starts this for you |
-| `:g/PATTERN/[CMD]`, `:g!/…`, `:v/…` | [global command](#global-commands): tag the items whose names match (`:g!` and `:v`: don't match), then run CMD on them |
-| `:s/OLD/NEW/[g][i]` | replace a regular expression in the names of the tagged items (or the item under the cursor). `g` = every match, `i` = ignore case, `&` = the match, `\1` = a group. Example: `:s/ /_/g` |
-| `:find PATTERN` | search the names in this folder and all subfolders, `*.log` or plain text to match part of a name; the pane shows the matches as a [result list](#result-lists) (`Esc` stops a long search) |
-| `:grep [TEXT]` | [search inside the files](#search-in-files) below this folder (same as `g/`) |
-| `:results`, `:res` | show the pane's last [result list](#result-lists) again |
-| `:obsidian` | open the note (or folder) under the cursor in Obsidian |
-| `:diffthis [FILE]` | [diff](#side-by-side-diff) two files: tagged, under both cursors (`gd`), or the cursor's file and FILE |
-| `:shelf [add\|copy\|move\|zip [NAME]\|list\|clear]` | the [shelf](#shelf); no argument shows / hides it |
-| `:branch` | branch view, same as `gb` |
-| `:hash [ALGO]` | write a checksum file (`md5`, `sha1`, `sha256` default, `sha512`) for the tagged items, folders included, in the `sha256sum` / Total Commander format; `:hash check`, or `:hash` with the cursor on a `.sha256` etc., verifies one and lists files that differ or are missing |
-| `:zip [NAME]` | pack the tagged items (or the cursor's) into `NAME.zip` in this folder; `u` removes it again |
-| `:recent`, `:recent [changed] DAYS`, `:recent clear` | files you opened (Enter, `:e`, F3/F4…), newest first, as a result list; or the files changed below this folder in the last DAYS days (default 7), newest first |
-| `:reclaim [SIZE] [DAYS]` | [caches and big old files](#freeing-space) below this folder, biggest first (default: files over 100M unchanged for 180 days) |
-| `:dupes [MINSIZE]`, `:dupes tag [old]` | [duplicate files](#freeing-space) as a result list; in it, tag all but the newest (or oldest) copy of each set |
-| `:git`, `:git changed`, `:git diff` | [git](#git): branch and counts / every changed file as a result list / the file under the cursor next to its last commit |
-| `:linkpanes [on\|off]`, `:link` | [link the panes](#linked-panes): both go into the same subfolders |
-| `:rules` | preview and apply the [folder rules](#folder-rules) |
-| `:grid [on\|off\|SIZE]` | [thumbnail grid](#thumbnail-grid) for this pane (same as `zi`), or the thumbnail size in pixels |
-| `:terminal [COMMAND]`, `:term` | show the [terminal](#terminal); with a command, run it there |
-| `:ftp [user@]host[:port][/path]`, `:ftp close` | open a folder on an [FTP server](#ftp-folders) in this pane (`ftps://host` = FTP over TLS); close all connections |
-| `:jobs [pause\|resume\|cancel]` | show / hide the [jobs panel](#jobs-and-the-copy-queue), or pause, resume or cancel every job |
-| `:hex [on\|off]` | quick view shows every file as a hex dump (binary files always do); no argument toggles |
-| `:ssh [user@]host[:path]`, `:ssh close` | open a folder on an [SSH server](#ssh-folders) in this pane (`Tab` completes hosts from `~/.ssh/config`); close all connections |
-| `:mirror` | make the other pane's folder a copy of this one: copy what is new or changed, delete what only the other side has, after a [preview](#compare-and-synchronize) |
-| `:share`, `:share stop` | [share](#share-with-a-phone) the tagged items (or the cursor's) with a phone by QR code; on `..` only receive files |
-| `:mksession NAME`, `:session [NAME]`, `:delsession NAME` | save, open (or list) and delete [sessions](#sessions) |
-| `:tabnew [PATH]`, `:tabclose` | open a tab (in PATH or the current folder) / close the current one |
-| `:drives` | drive menu for the active pane |
-| `:graph` | open the graph window (same as `gG`) |
-| `:files`, `:palette`, `:activity` | same as `Ctrl-p`, `Ctrl-Shift-p`, `gr` |
-| `:bulkrename`, `:br` | [rename](#bulk-rename) the tagged items (or all items) as text, in a dialog or your editor |
-| `:compare`, `:diff` | [tag the differences](#compare-and-synchronize) between the two panes' folders |
-| `:synchronize` | [compare the panes' folder trees](#compare-and-synchronize) and copy what differs |
-| `:graph 1\|2\|3`, `size\|count`, `tree\|sunburst\|treemap\|timeline\|types\|notes\|code`, `on\|off` | graph depth, what node size shows, the mode, graph in quick view on or off; several at once (`:graph 3 count`). Saved |
-| `:z KEYWORDS` | jump to the best zoxide match, like `z` in a shell; `:z` alone = home. `Tab` cycles through the matches |
-| `:zi [KEYWORDS]` | pick from zoxide's list, same as `gz` |
-| `:undo`, `:redo` | same as `u` / `Ctrl-r` |
-| `:undolist` | list what can be undone and redone |
-| `:reg`, `:registers`, `:di`, `:display` | list the registers, the clipboard's files and the macros |
-| `:e [FILE]`, `:edit [FILE]` | open FILE (or the file under the cursor) in `programs.editor` |
-| `:tabs` | list both panes' tabs |
-| `:tabmove [N]` | move the tab after tab N (`0` = first, nothing = last, `+1` / `-1` = one step) |
-| `:set OPTION` | vim options, see below: `:set rnu`, `:set nonu`, `:set nu!` (toggle), `:set ic?` (show), several at once; `:set` alone lists them. Changes are saved |
-| `:noh`, `:nohlsearch` | clear the search highlight until the next search |
-| `:filter [PATTERN]` | same as `=`; no pattern clears the filter |
-| `:sort name\|ext\|size\|time` | sort this pane; prefix `-` to reverse, e.g. `:sort -size` |
-| `:select PATTERN` | tag items matching a shell pattern, e.g. `:select *.jpg` |
-| `:unselect PATTERN` | untag matching items |
-| `:marks` | list marks |
-| `:delmarks [LETTERS]` | delete the given marks, or all marks |
-| `:bar` | show / hide the launch bar |
-| `:bar add [PATH]` | add a folder or program to the launch bar (default: current folder) |
-| `:sync` | open this pane's folder in the other pane too |
-| `:!COMMAND` | run a shell command in the current folder; `%d` `%o` `%f` `%s` are filled in (quoted), `%%` is a literal `%` |
-| `:shell` | open a terminal in the current folder |
-| `:config` | open the config file in the editor; changes apply when you save it |
-| `:42` | go to row 42 |
-| `:help` | show the key reference |
+| `hex` | `:hex`: quick view shows every file in hex |
+| `plot` | `zp`: CSV files show as a [plot](#csv-plot) |
+| `grid` | `zi`: the [thumbnail grid](#thumbnail-grid) in this pane |
+| `quickview` (`qv`) | `Ctrl-q`: [quick view](#quick-view) |
+| `linkpanes` (`lp`) | `:linkpanes`: [linked panes](#linked-panes) |
+| `bar` | `:bar`: the [launch bar](#launch-bar) |
 
-## Launch bar
+`:set` saves them to the config file, where they are the top-level `number`, `relativenumber`, `ignorecase`, `smartcase`, `hlsearch`, `wrapscan`, `clipboard`, `show_hidden`, `columns`, `git` and `natural_sort` options.
+
+## Finding files and folders
+
+### Find files
+
+`Ctrl-p` (or `:files`) lists every file and folder below the current folder and filters them as you type, fzf style: the letters must appear in order (`vcapp` finds `vimcommander/app.py`), and matches at the start of a word, of a file name, or in a row score higher. Folders you often visit (from [zoxide](#zoxide), if installed) rank higher. The right side previews the selected item, like quick view.
+
+| Key | Action |
+|---|---|
+| `↑` `↓`, `Ctrl-j` `Ctrl-k`, `Ctrl-n` `Ctrl-p` | move |
+| `Enter` | go there: the pane opens the folder with the cursor on the file |
+| `Shift-Enter` | open the file with its app |
+| `Ctrl-t` | go there in a new tab |
+| `Ctrl-Enter` | show all the matches as a [result list](#result-lists) in the pane |
+| `Esc` | close |
+
+Hidden files are included when they're shown in the pane (`za`). `.git`, `node_modules`, `__pycache__` and similar folders are skipped.
+
+### Result lists
+
+A pane can show a list of files from many folders instead of one folder: the results of `:find`, of [`:grep`](#search-in-files) (`Ctrl-Enter`), of the [file finder](#find-files) (`Ctrl-Enter`), of the [activity calendar](#activity-calendar) (*Show in the pane*) and of the [shelf](#shelf) (`:shelf list`). The path header shows `[find *.log]   12 item(s) in ~/projects`, and the names show their path relative to that folder (`src/app/main.log`). `:find` fills the list while it searches; `Esc` stops it.
+
+Everything that works on files works here: tag (`t`, `v`, `:select`), `yy` / `dd`, `F5` / `F6` to the other pane, `Del`, `cw` and `:rename` / `:s` / `:bulkrename` (each file keeps its folder), `F3` / `F4`, quick view, `/` search and the `=` filter, `:sort`, and `u`. Trashed or moved files drop out of the list; renamed files stay in it.
+
+| Keys | Action |
+|---|---|
+| `h`, `-`, `Backspace`, `..` | leave the list: back to the folder the search ran in |
+| `gf` | open the folder of the file under the cursor, with the cursor on it |
+| `l`, `Enter` | open the file, or go into the folder (which leaves the list) |
+| `:results` | show the list again after leaving it |
+| `]q` / `[q`, `:cn` / `:cp` | go to the next / previous item in its own folder, with the cursor on it; in the list, it goes on from the item under the cursor. So you can work through `:grep` matches where the files are |
+| `:cdo !COMMAND` | run a shell command for each item (the tagged ones, or all), one after another, in the item's folder: `%f` is the item, `%d` its folder, `%o` the other pane's folder. `Esc` stops; the status bar says how many failed, with the first error. The output isn't shown: use the [terminal](#terminal) for commands that print |
+| `:cdo COMMAND` | run a `:` command once for each item, with the cursor on it, e.g. `:cdo pdfextract 1` (the first page of each PDF, next to it) or `:cdo rename {name}_v2{ext}`. `:g` instead tags the matches and runs a command once |
+
+A result list isn't a folder, so you can't paste or create files in it (`p`, `F7`, `:touch`), nor copy or drop files into it; `h` first. A tab can hold a result list; they aren't kept between runs.
+
+### Search in files
+
+`g/` (or `:grep TEXT`) searches inside the files below the current folder as you type. The left side lists each file with its matching lines; the right side shows the selected line in context, with the matches highlighted.
+
+- The text is a regular expression (or plain text if it isn't a valid one), with vim's `ignorecase` / `smartcase`: `todo` matches `TODO`, `Todo` matches only `Todo`.
+- The box on the right limits the files: shell patterns separated by spaces, `!` to leave out, e.g. `*.py *.md !test_*`. It is remembered for the next search.
+- Binary files, files over 20 MB, and `.git`, `node_modules`, `__pycache__` and similar folders are skipped; hidden files are searched when they're shown (`za`). The search stops at 10,000 matches.
+
+| Key | Action |
+|---|---|
+| `↑` `↓`, `Ctrl-j` `Ctrl-k`, `PgUp` `PgDn` | move through files and lines |
+| `Enter` | open the file in the editor at that line (set `programs.editor_line`, see [Programs](#programs); otherwise the editor opens the file at the top) |
+| `Shift-Enter` | go to the file in the pane |
+| `Ctrl-Enter` | show every matching file as a [result list](#result-lists) |
+| `Esc` | close |
+
+### zoxide
+
+[zoxide](https://github.com/ajeetdsouza/zoxide) remembers the folders you use and jumps to them by a few letters of their names. If it is installed, VimCommander records every folder a pane opens (folders inside zip files are skipped), using the same database as your shell's `z`.
+
+| To… | Do this |
+|---|---|
+| jump to the best match | `:z proj vim`: the keywords must appear in that order, and the last one in the folder's own name (zoxide's rule) |
+| choose from a list | `gz` or `:zi [KEYWORDS]`: type to filter, `↑`/`↓` or `Ctrl-j`/`Ctrl-k` to move, `Enter` jumps, `Shift-Enter` opens a new tab |
+| go to a path | `:z PATH` also accepts a real folder path |
+
+Install zoxide with `winget install ajeetdsouza.zoxide` (Windows), `brew install zoxide` (macOS) or your Linux package manager. VimCommander finds it on `PATH`; otherwise set `programs.zoxide` to its full path. On Windows with WSL, Windows and WSL each have their own zoxide database.
+
+### Activity calendar
+
+`gr` (or `:activity`) shows when files below the current folder changed:
+
+- **A calendar of the last year**, one square per day, darker for more changed files (GitHub style). Hover a day for its count.
+- **The most recently changed files**, grouped by day (Today, Yesterday, Mon 2026-10-05…).
+- **Click a day** to list only its files (older days are searched on demand); click it again to go back. `Enter` or double-click on a file jumps to it.
+- **Show in the pane** (`Ctrl-Enter`) puts the listed files in the pane as a [result list](#result-lists), so you can tag, copy or trash, say, everything you changed yesterday.
+
+The scan skips `.git`, `node_modules` and similar folders, and stops after 400,000 files or 20 seconds.
+
+### Which-key and command palette
+
+**Which-key.** Type the first key of a sequence and wait half a second: a panel above the status bar lists every key that can follow, with what it does. It works after `g`, `z`, `y`, `d`, `c`, `Z`, `Ctrl-w`, after `"` (it lists the registers and what's in them), `m` and `'` (your marks and where they point), `q` and `@` (your macros), and after any key you map yourself. Set `which_key_delay` in the config to change the pause (milliseconds), or to `0` to turn the panel off.
+
+**Command palette** (`Ctrl-Shift-p` or `:palette`). Every action and `:` command in one searchable list, with its keys, e.g. type `hid` for "show / hide hidden files   za". `Enter` runs it; a command that needs an argument (`:cd PATH`) opens the `:` line for you to finish it. Your own commands from the config are listed too.
+
+## Working with files
+
+### Bulk rename
+
+`:bulkrename` (or `:br`) shows the tagged items, or all items if none are tagged, as numbered lines:
+
+```text
+1	holiday.jpg
+2	IMG_2041.jpg
+3	notes.txt
+```
+
+Change the names after the numbers, then press **Apply**: everything is renamed at once, swaps and case changes included, and `u` undoes it. **Delete a line** to move that item to the trash (it asks first). Lines starting with `#` are ignored.
+
+**Open in editor** opens the same text in your editor (`programs.editor`), so you can use vim, `:%s`, macros and multiple cursors. Each time you save there, the dialog's text follows; press Apply when you're done. (For a terminal editor such as nvim, set `programs.editor` to a command that opens a terminal, e.g. `wt.exe nvim`.)
+
+### Global commands
+
+Vim's `:g` works on the file names of the current pane: `:g/PATTERN/CMD` tags every item whose name matches PATTERN, then runs CMD on the tagged items. PATTERN works like `/` search: a regular expression, or a shell pattern if it only has `*` and `?`, with smartcase. `:g!/PATTERN/CMD` and `:v/PATTERN/CMD` take the items that **don't** match. Any punctuation can be the delimiter (`:g#a/b#d`), and an empty pattern reuses the last search.
+
+| CMD | Does |
+|---|---|
+| *(nothing)* | only tag the items: `:g/\.jpe?g$/` |
+| `d` | move them to the trash (asks first): `:g/\.log$/d` |
+| `d!` | delete them permanently (asks first) |
+| `y`, `y x` | yank them, into register `x` if given; then `p` in the other folder |
+| `normal KEYS` | press KEYS, e.g. `:g/^IMG_/normal <F5>` copies them to the other pane |
+| any `:` command | run it on the tagged items: `:g/ /s/ /_/g`, `:g/\.md$/zip notes`, `:v/\.py$/shelf add` |
+
+### Shelf
+
+The shelf is a panel on the right where you collect files from different folders, then do something with all of them at once. Unlike a register it is visible, it keeps its items until you remove them, and it is saved between runs.
+
+| To… | Do this |
+|---|---|
+| put files on it | `zs` (the tagged items or the cursor's; also in visual mode), *Put on the shelf* in the right-click menu, `:shelf add`, or drag files onto it |
+| show / hide it, go to it | `zS` or `:shelf`; its close button hides it |
+| copy / move them into the pane's folder | `:shelf copy` / `:shelf move` (or right-click the shelf) |
+| zip them | `:shelf zip [NAME]` makes `NAME.zip` in the pane's folder |
+| work on them in a pane | `:shelf list` shows them as a [result list](#result-lists) |
+| drag them somewhere | drag from the shelf into a pane (copy; `Shift` = move) or into another app |
+| take items off | in the shelf, `d` or `Del` (the files themselves stay); `:shelf clear` empties it |
+
+In the shelf, `j` / `k` move, `Enter` goes to the file in the pane, and `Esc` goes back to the pane. The commands act on the items selected in the shelf, or on all of them. Moved and renamed files stay on the shelf under their new path; files that are trashed or deleted drop off.
+
+### Zip files
+
+`Enter` (or `l`) on a `.zip` (also `.jar` and `.whl`) opens it like a folder; `h` leaves it. Inside you can browse, preview with `Ctrl-q`, open files (they are extracted to a temporary folder first), and copy files and folders out with `F5`, `yy` / `p` or a drag. You can delete items with `Delete` / `F8` / `Shift-Delete` (permanently: the zip is rewritten without them, and there is no undo). Otherwise zip files are read-only: you can't move or rename items in them or copy files into them. If you set a program for `.zip` in `programs.open_with`, `Enter` runs that program instead.
+
+### PDF tools
+
+| Command | Does |
+|---|---|
+| `:pdfmerge [NAME]` | joins the tagged PDFs, in the order the pane shows them, into `NAME.pdf` here. Name them `0_…`, `1_…` or sort the pane to set the order. Nothing is saved if any PDF can't be read |
+| `:pdfextract PAGES [NAME]` | copies pages of the PDF under the cursor (or of each tagged one) into a new PDF next to it, named `<name> pPAGES.pdf` unless NAME is given |
+
+Page lists: `3`, `2-5`, `1,4,7-` (7 to the end), `-3` (1 to 3), `9-7` (backwards), `$` (the last page); pages come out in the order written, so `:pdfextract 3,1,2` also reorders. `u` removes the new PDF. In a [result list](#result-lists), `:cdo pdfextract 1` takes the first page of every PDF.
+
+### Folder rules
+
+Folder rules tidy folders such as Downloads, like Hazel on macOS. Write them in the config's `rules` list:
+
+```json
+"rules": [
+  {"name": "old PDFs", "folder": "~/Downloads", "match": "*.pdf *.djvu",
+   "older_than_days": 7, "action": "move", "to": "~/Documents/PDF"},
+  {"name": "installers", "folder": "~/Downloads", "match": "*.msi *.exe",
+   "older_than_days": 30, "action": "trash"},
+  {"folder": "~/Desktop", "match": "Screenshot*.png", "action": "move", "to": "~/Pictures/Screenshots"}
+]
+```
+
+| Key | Meaning |
+|---|---|
+| `folder` | where to look (only the files directly in it, unless `"subfolders": true`) |
+| `match` | shell patterns separated by spaces, or a list; case doesn't matter. Default: every file |
+| `older_than_days`, `larger_than` | optional: last changed at least this many days ago / bigger than `"10M"` |
+| `action`, `to` | `"move"` or `"copy"` to the `to` folder (made if missing), or `"trash"` |
+| `name` | optional, shown in the preview |
+
+**`:rules`** never acts straight away: it shows every file the rules would move, copy or trash. Untick what to leave alone (`Space` toggles the selected rows) and press **Apply**. Each file is handled by the first rule that matches it, hidden files are left alone, and `u` undoes the moves.
+
+### Freeing space
+
+**`:reclaim`** looks below the current folder for space you can safely get back and shows it as a [result list](#result-lists), biggest first, each with a note saying what it is:
+
+- **Rebuildable folders**: `node_modules`, `__pycache__`, `.venv` / `venv`, `.tox`, `.pytest_cache`, `.mypy_cache`, `.gradle`, `.next`, `.dart_tool`, `Pods`, `DerivedData`, `.pio` (PlatformIO), `.ipynb_checkpoints`, `.vs` and similar. `build`, `dist`, `target`, `obj`, `coverage`, `Debug`, `Release` and Keil's `Objects` / `Listings` count only next to a project file (`package.json`, `pyproject.toml`, `Cargo.toml`, `CMakeLists.txt`, `*.csproj`, `*.vcxproj`, Eclipse / STM32CubeIDE's `.cproject`, Atmel Studio's `*.cproj`, Keil's `*.uvprojx`, IAR's `*.ewp`, `platformio.ini`…), so your own "build" folder of photos isn't listed.
+- **Ansys Electronics Desktop**: `X.aedtresults` next to `X.aedt` (the solutions; solving again rebuilds them, which can take long), and `X.aedt.lock` files older than a day, which AEDT leaves behind when it crashes. Delete a lock only while AEDT is closed.
+- **Big files that haven't changed for a long time**: over 100 MB and unchanged for 180 days by default; `:reclaim 500M 365` changes both.
+
+Tag what you don't need and press `Del` (it goes to the trash, so `u` brings it back).
+
+**`:dupes`** finds files with the same content below the current folder: same size, then the same first 64 KB, then the same full hash. The result list shows each set together (`[set 3: 4 copies of 12.5 M]`), the sets that waste the most space first. `:dupes 1M` skips files under 1 MB. In the list, **`:dupes tag`** tags every copy except the newest of each set (`:dupes tag old`: except the oldest), ready for `Del`.
+
+### Jobs and the copy queue
+
+Copies, moves, `:synchronize` / `:mirror` and `:zip` run one at a time: one started while another is running waits in a queue, so two big copies to the same disk don't slow each other down. The first job shows the usual progress window, with *Pause* and *Background* (hide the window, keep going in the panel). Queued jobs show in the **jobs panel**, which opens by itself when something is queued and closes when the queue is empty; `:jobs` shows or hides it any time.
+
+Each row in the panel shows the job's progress, with *Pause* / *Resume*, *Cancel* (a waiting job is just removed) and *Next* (run this waiting job next). A paused waiting job is skipped until you resume it. `:jobs pause`, `:jobs resume` and `:jobs cancel` act on all jobs at once. Pausing stops between two chunks of a file; nothing is lost. Trash, delete and undo don't wait in the queue. To run every job at once as before, set `"queue_jobs": false` in the config.
+
+### Drag and drop
+
+- **Drag from a pane** to another app, to the other pane, or onto a folder in either pane.
+- **Drop from another app** onto a pane to copy the files into that pane's folder, or onto a folder row to copy them into that folder.
+- A plain drop **copies**. Hold **Shift** while dropping to **move**.
+- Dropping files onto a pane that already shows their folder does nothing.
+
+### Right-click menu
+
+Right-click an item, or press the `Menu` key or `Shift-F10`. If you right-click a tagged item, the menu acts on all tagged items. If you right-click any other item, the tags are cleared and the menu acts on that item. Right-click empty space or `..` for a menu for the folder itself.
+
+- **Windows**: the same menu Explorer shows, including *Open with*, *Send to*, *Properties* and the items other programs add (7-Zip, Git, VS Code, antivirus…). VimCommander's own items are at the bottom: Edit with the configured editor, Quick view, Copy path, Folder size, Put on the shelf, Terminal here. *Rename* and *Delete* from this menu use VimCommander's rename and trash, so `u` can undo them.
+  - Hold **Shift** while right-clicking to get Explorer's extended items, such as *Copy as path*.
+  - Hold **Ctrl** while right-clicking to get VimCommander's own menu instead.
+- **Linux and macOS**, and inside zip files: VimCommander's own menu with Open, View, Edit, Copy, Cut, Paste, Rename, Trash, Delete, Copy path, Put on the shelf, Folder size, Terminal here, and so on.
+
+### Launch bar
 
 The bar above the panes holds buttons for folders and programs you use often.
 
@@ -424,297 +677,49 @@ Some examples:
 
 Programs start in the active pane's folder. On the first run the bar is filled with Home, Desktop, Documents, Downloads (if they exist), the root folder, and a terminal for your platform.
 
-## Right-click menu
+## Viewing files
 
-Right-click an item, or press the `Menu` key or `Shift-F10`. If you right-click a tagged item, the menu acts on all tagged items. If you right-click any other item, the tags are cleared and the menu acts on that item. Right-click empty space or `..` for a menu for the folder itself.
+### Quick view
 
-- **Windows**: the same menu Explorer shows, including *Open with*, *Send to*, *Properties* and the items other programs add (7-Zip, Git, VS Code, antivirus…). VimCommander's own items are at the bottom: Edit with the configured editor, Quick view, Copy path, Folder size, Put on the shelf, Terminal here. *Rename* and *Delete* from this menu use VimCommander's rename and trash, so `u` can undo them.
-  - Hold **Shift** while right-clicking to get Explorer's extended items, such as *Copy as path*.
-  - Hold **Ctrl** while right-clicking to get VimCommander's own menu instead.
-- **Linux and macOS**, and inside zip files: VimCommander's own menu with Open, View, Edit, Copy, Cut, Paste, Rename, Trash, Delete, Copy path, Put on the shelf, Folder size, Terminal here, and so on.
+`Ctrl-q` turns the other pane into a preview of the item under the cursor; it follows the cursor as you move, and `Ctrl-q` again closes it.
 
-## Which-key and command palette
-
-**Which-key.** Type the first key of a sequence and wait half a second: a panel above the status bar lists every key that can follow, with what it does. It works after `g`, `z`, `y`, `d`, `c`, `Z`, `Ctrl-w`, after `"` (it lists the registers and what's in them), `m` and `'` (your marks and where they point), `q` and `@` (your macros), and after any key you map yourself. Set `which_key_delay` in the config to change the pause (milliseconds), or to `0` to turn the panel off.
-
-**Command palette** (`Ctrl-Shift-p` or `:palette`). Every action and `:` command in one searchable list, with its keys, e.g. type `hid` for "show / hide hidden files   za". `Enter` runs it; a command that needs an argument (`:cd PATH`) opens the `:` line for you to finish it. Your own commands from the config are listed too.
-
-## Find files
-
-`Ctrl-p` (or `:files`) lists every file and folder below the current folder and filters them as you type, fzf style: the letters must appear in order (`vcapp` finds `vimcommander/app.py`), and matches at the start of a word, of a file name, or in a row score higher. Folders you often visit (from [zoxide](#zoxide), if installed) rank higher. The right side previews the selected item, like quick view.
-
-| Key | Action |
+| Item | Shows |
 |---|---|
-| `↑` `↓`, `Ctrl-j` `Ctrl-k`, `Ctrl-n` `Ctrl-p` | move |
-| `Enter` | go there: the pane opens the folder with the cursor on the file |
-| `Shift-Enter` | open the file with its app |
-| `Ctrl-t` | go there in a new tab |
-| `Ctrl-Enter` | show all the matches as a [result list](#result-lists) in the pane |
-| `Esc` | close |
+| folder, or `..` for the current one | a [folder graph](#folder-graph) (`:graph off`: a short summary) |
+| text file | its first 256 KB |
+| image | the picture, scaled to fit |
+| PDF | the first pages, rendered |
+| Markdown note | rendered; Obsidian `[[links]]` and embedded images work, click a link to go to that note |
+| CSV / TSV | a table with the row and column count; hover a column header for min, max, mean or distinct values. `zp` shows a [plot](#csv-plot) instead |
+| Jupyter notebook (`.ipynb`) | its cells, outputs and plots: code shaded, outputs indented below |
+| STM32CubeMX project (`.ioc`) | the chip, clocks, a pin table with labels and modes, the peripheral settings you changed, DMA and interrupts |
+| linker `.map`, `.elf` | the [firmware memory map](#firmware-memory-map) |
+| binary file | a hex dump (`:hex` shows every file that way) |
 
-Hidden files are included when they're shown in the pane (`za`). `.git`, `node_modules`, `__pycache__` and similar folders are skipped.
+Files inside zips show too; on SSH and FTP servers, text and images.
 
-## Result lists
+### CSV plot
 
-A pane can show a list of files from many folders instead of one folder: the results of `:find`, of [`:grep`](#search-in-files) (`Ctrl-Enter`), of the [file finder](#find-files) (`Ctrl-Enter`), of the [activity calendar](#activity-calendar) (*Show in the pane*) and of the [shelf](#shelf) (`:shelf list`). The path header shows `[find *.log]   12 item(s) in ~/projects`, and the names show their path relative to that folder (`src/app/main.log`). `:find` fills the list while it searches; `Esc` stops it.
+`zp` makes quick view show a CSV file as a plot instead of a table (`zp` again: the table). Each numeric column gets a strip of its own, one above the other, all over the same x axis: a rising column named like time (`Time`, `t`, `x`, `sec`, `Second`) or else a rising first column; otherwise the row number. With more columns than fit, the strips scroll.
 
-Everything that works on files works here: tag (`t`, `v`, `:select`), `yy` / `dd`, `F5` / `F6` to the other pane, `Del`, `cw` and `:rename` / `:s` / `:bulkrename` (each file keeps its folder), `F3` / `F4`, quick view, `/` search and the `=` filter, `:sort`, and `u`. Trashed or moved files drop out of the list; renamed files stay in it.
+- **Names and units** come from the header row. Rows above the numbers that aren't a header, such as a scope's settings (Siglent, Rigol) or a title line, are skipped, and a second header row is taken as the units (`CH1 [Volt]`). Columns of text are left out; empty cells are gaps in the line.
+- **Mouse**: the value of each column under the mouse shows next to its name, and the x value under the axis. Drag across the plot to zoom into that part, right-click to zoom back out, double-click to see it all.
+- **Statistics**: each strip shows min, max, mean and RMS of the part in view.
+- **Big files** are read in the background, up to 16 million numbers (a 700,000-row, 6-column file takes about two seconds). Long columns are drawn as one min–max bar per pixel, so short spikes still show.
 
-| Keys | Action |
-|---|---|
-| `h`, `-`, `Backspace`, `..` | leave the list: back to the folder the search ran in |
-| `gf` | open the folder of the file under the cursor, with the cursor on it |
-| `l`, `Enter` | open the file, or go into the folder (which leaves the list) |
-| `:results` | show the list again after leaving it |
+Semicolon-separated files with decimal commas work; the file is read as UTF-8. CSV files inside zips can be plotted, files on SSH and FTP servers show as tables only.
 
-A result list isn't a folder, so you can't paste or create files in it (`p`, `F7`, `:touch`), nor copy or drop files into it; `h` first. A tab can hold a result list; they aren't kept between runs.
+### Firmware memory map
 
-## Search in files
+Quick view (`Ctrl-q`) of a linker map file or a firmware image shows what fills the microcontroller's memory:
 
-`g/` (or `:grep TEXT`) searches inside the files below the current folder as you type. The left side lists each file with its matching lines; the right side shows the selected line in context, with the matches highlighted.
+- **GNU ld `.map`** files (STM32CubeIDE, Atmel Studio, ESP-IDF, avr-gcc, PlatformIO…): the memory regions from the map's *Memory Configuration* (FLASH, RAM, CCMRAM…), each with its sections (`.text`, `.rodata`, `.data`, `.bss`, heap and stack), object files and functions. `.data` counts twice, as in the linker's own summary: in RAM, and its initial values in Flash.
+- **Keil MDK `.map`** files: the load and execution regions, and Code, RO, RW and ZI data per object file.
+- **`.elf` / `.axf`** images: Flash and RAM from the sections, with the functions and variables of the symbol table. If a `.map` with the same name is next to it, that is shown instead (it knows the object files).
 
-- The text is a regular expression (or plain text if it isn't a valid one), with vim's `ignorecase` / `smartcase`: `todo` matches `TODO`, `Todo` matches only `Todo`.
-- The box on the right limits the files: shell patterns separated by spaces, `!` to leave out, e.g. `*.py *.md !test_*`. It is remembered for the next search.
-- Binary files, files over 20 MB, and `.git`, `node_modules`, `__pycache__` and similar folders are skipped; hidden files are searched when they're shown (`za`). The search stops at 10,000 matches.
+At the top, a bar per region shows how full it is (green, yellow over 70%, red over 90%); click one to see what fills it. Below, a treemap: sections with their object files inside; click a box to zoom into it (then into its functions), right-click or click the path line to go back. Hover a box for its exact size and share. A `.map` that isn't a linker map (a JavaScript source map, a game level) is shown as text.
 
-| Key | Action |
-|---|---|
-| `↑` `↓`, `Ctrl-j` `Ctrl-k`, `PgUp` `PgDn` | move through files and lines |
-| `Enter` | open the file in the editor at that line (set `programs.editor_line`, see [Programs](#programs); otherwise the editor opens the file at the top) |
-| `Shift-Enter` | go to the file in the pane |
-| `Ctrl-Enter` | show every matching file as a [result list](#result-lists) |
-| `Esc` | close |
-
-## Bulk rename
-
-`:bulkrename` (or `:br`) shows the tagged items, or all items if none are tagged, as numbered lines:
-
-```text
-1	holiday.jpg
-2	IMG_2041.jpg
-3	notes.txt
-```
-
-Change the names after the numbers, then press **Apply**: everything is renamed at once, swaps and case changes included, and `u` undoes it. **Delete a line** to move that item to the trash (it asks first). Lines starting with `#` are ignored.
-
-**Open in editor** opens the same text in your editor (`programs.editor`), so you can use vim, `:%s`, macros and multiple cursors. Each time you save there, the dialog's text follows; press Apply when you're done. (For a terminal editor such as nvim, set `programs.editor` to a command that opens a terminal, e.g. `wt.exe nvim`.)
-
-## Compare and synchronize
-
-**`:compare`** compares the two panes' folders (not their subfolders) by name, size and date, and tags in each pane the items that are newer there or only there. Then `F5` copies the tagged items across.
-
-**`:synchronize`** compares the two folder trees, subfolders included, like Total Commander's "Synchronize dirs". A list shows every difference with a proposed direction:
-
-| Shown | Meaning | Proposed |
-|---|---|---|
-| only left / only right | the item exists on one side | copy it to the other side |
-| left newer / right newer | same name, different date | copy the newer over the older |
-| differ, same time | same date but different size | nothing (you choose) |
-
-Click the arrow in a row to cycle → / ← / ✗ delete / nothing, or select rows and press `>`, `<`, `=` or `x` (delete, for an item that only one side has). Double-click a file that is on both sides to see what changed in a [side-by-side diff](#side-by-side-diff). The checkboxes hide rows by direction, include subfolders or not, and **compare the contents** of same-size files with different dates (slower; equal ones are then left out). **`:mirror`** opens the same list set up to make the *other* pane's folder an exact copy of the *active* one: everything new or changed is copied across, and items only the other side has are marked **✗ delete**. Check the list, change what you like, then press **Mirror**. Deleted local items go to the trash; on an [SSH server](#ssh-folders) they are deleted. Both work between a local folder and a server folder, for deploying a site or backing up a project.
-
-**Synchronize** copies everything, with the progress dialog; newly created files can be undone with `u`. Files are the same when size and date match within 2 seconds (FAT drives store times in 2-second steps).
-
-## Side-by-side diff
-
-`gd` (or `:diffthis`) shows two text files side by side, like vimdiff: the two tagged files, or else the files under the cursors of the two panes (left pane on the left). `:diffthis FILE` compares the file under the cursor with FILE. Files inside zip files work too.
-
-- Lines are lined up: changed lines are yellow with the changed part darker, lines only on the left red, lines only on the right green, with an empty row opposite. The current change is blue.
-- Both sides scroll together. *Ignore white space* compares lines without their spacing.
-- Binary files (and files over 8 MB) are only reported as the same or different.
-
-| Keys | Action |
-|---|---|
-| `]c` / `[c`, `n` / `N` | next / previous change |
-| `j` / `k`, `Ctrl-d` / `Ctrl-u`, `Ctrl-f` / `Ctrl-b` | scroll a line, half a page, a page |
-| `gg` / `G` | top / bottom |
-| `Tab` | the other side (to select and copy text) |
-| `q`, `Esc` | close |
-
-## Activity calendar
-
-`gr` (or `:activity`) shows when files below the current folder changed:
-
-- **A calendar of the last year**, one square per day, darker for more changed files (GitHub style). Hover a day for its count.
-- **The most recently changed files**, grouped by day (Today, Yesterday, Mon 2026-10-05…).
-- **Click a day** to list only its files (older days are searched on demand); click it again to go back. `Enter` or double-click on a file jumps to it.
-- **Show in the pane** (`Ctrl-Enter`) puts the listed files in the pane as a [result list](#result-lists), so you can tag, copy or trash, say, everything you changed yesterday.
-
-The scan skips `.git`, `node_modules` and similar folders, and stops after 400,000 files or 20 seconds.
-
-## Shelf
-
-The shelf is a panel on the right where you collect files from different folders, then do something with all of them at once. Unlike a register it is visible, it keeps its items until you remove them, and it is saved between runs.
-
-| To… | Do this |
-|---|---|
-| put files on it | `zs` (the tagged items or the cursor's; also in visual mode), *Put on the shelf* in the right-click menu, `:shelf add`, or drag files onto it |
-| show / hide it, go to it | `zS` or `:shelf`; its close button hides it |
-| copy / move them into the pane's folder | `:shelf copy` / `:shelf move` (or right-click the shelf) |
-| zip them | `:shelf zip [NAME]` makes `NAME.zip` in the pane's folder |
-| work on them in a pane | `:shelf list` shows them as a [result list](#result-lists) |
-| drag them somewhere | drag from the shelf into a pane (copy; `Shift` = move) or into another app |
-| take items off | in the shelf, `d` or `Del` (the files themselves stay); `:shelf clear` empties it |
-
-In the shelf, `j` / `k` move, `Enter` goes to the file in the pane, and `Esc` goes back to the pane. The commands act on the items selected in the shelf, or on all of them. Moved and renamed files stay on the shelf under their new path; files that are trashed or deleted drop off.
-
-## Freeing space
-
-**`:reclaim`** looks below the current folder for space you can safely get back and shows it as a [result list](#result-lists), biggest first, each with a note saying what it is:
-
-- **Rebuildable folders**: `node_modules`, `__pycache__`, `.venv` / `venv`, `.tox`, `.pytest_cache`, `.mypy_cache`, `.gradle`, `.next`, `.dart_tool`, `Pods`, `DerivedData` and similar. `build`, `dist`, `target`, `obj` and `coverage` count only next to a project file (`package.json`, `pyproject.toml`, `Cargo.toml`, `*.csproj`…), so your own "build" folder of photos isn't listed.
-- **Big files that haven't changed for a long time**: over 100 MB and unchanged for 180 days by default; `:reclaim 500M 365` changes both.
-
-Tag what you don't need and press `Del` (it goes to the trash, so `u` brings it back).
-
-**`:dupes`** finds files with the same content below the current folder: same size, then the same first 64 KB, then the same full hash. The result list shows each set together (`[set 3: 4 copies of 12.5 M]`), the sets that waste the most space first. `:dupes 1M` skips files under 1 MB. In the list, **`:dupes tag`** tags every copy except the newest of each set (`:dupes tag old`: except the oldest), ready for `Del`.
-
-## Git
-
-When the folder is in a git repository (and `git` is installed), file names are colored by their status, and the path header shows the branch, with `↑2 ↓1` when it is ahead of or behind its upstream:
-
-| Color | Meaning |
-|---|---|
-| orange | changed since the last commit; a folder is orange when something inside it changed |
-| green | new: not committed yet (untracked or just added) |
-| pink | a merge conflict |
-| grey | ignored by `.gitignore` |
-
-The status is updated whenever the folder changes, in the background. Hovering a colored name shows its status.
-
-- **`:git`** shows the branch and how many files are changed, new or in conflict.
-- **`:git changed`** shows every changed and new file of the whole repository as a [result list](#result-lists), so you can view, copy or trash them.
-- **`:git diff`** (or `gd` when the other pane's cursor isn't on a file) shows the file under the cursor next to its last committed version, in the [diff window](#side-by-side-diff).
-
-`:set nogit` turns it off. Set `programs.git` if git isn't on your `PATH`; the colors are in the config's `colors` section.
-
-## Linked panes
-
-`:linkpanes` (or `:link`) ties the two panes together for comparing mirror trees, such as a project and its backup copy, or two versions of a folder:
-
-- When you open a subfolder in the active pane, the other pane opens the same subfolder on its side. If it doesn't exist there, the status bar says so.
-- When you move the cursor, the other pane's cursor goes to the item with the same name.
-- Items that only one side has are colored purple.
-
-The path headers show `[linked]`. `:linkpanes` again unlinks them. (`:compare` and `:synchronize` work as before for copying the differences.)
-
-## Miller columns
-
-`:set columns` shows each pane as three columns, like ranger or macOS Finder's column view: the parent folder (with the current folder highlighted) on the left, the list in the middle, and on the right what's under the cursor: a folder's items, or a preview of a file (text or image). The columns follow as you move. `:set nocolumns` goes back to the plain list (`:set columns!` toggles); the choice is saved.
-
-## Folder rules
-
-Folder rules tidy folders such as Downloads, like Hazel on macOS. Write them in the config's `rules` list:
-
-```json
-"rules": [
-  {"name": "old PDFs", "folder": "~/Downloads", "match": "*.pdf *.djvu",
-   "older_than_days": 7, "action": "move", "to": "~/Documents/PDF"},
-  {"name": "installers", "folder": "~/Downloads", "match": "*.msi *.exe",
-   "older_than_days": 30, "action": "trash"},
-  {"folder": "~/Desktop", "match": "Screenshot*.png", "action": "move", "to": "~/Pictures/Screenshots"}
-]
-```
-
-| Key | Meaning |
-|---|---|
-| `folder` | where to look (only the files directly in it, unless `"subfolders": true`) |
-| `match` | shell patterns separated by spaces, or a list; case doesn't matter. Default: every file |
-| `older_than_days`, `larger_than` | optional: last changed at least this many days ago / bigger than `"10M"` |
-| `action`, `to` | `"move"` or `"copy"` to the `to` folder (made if missing), or `"trash"` |
-| `name` | optional, shown in the preview |
-
-**`:rules`** never acts straight away: it shows every file the rules would move, copy or trash. Untick what to leave alone (`Space` toggles the selected rows) and press **Apply**. Each file is handled by the first rule that matches it, hidden files are left alone, and `u` undoes the moves.
-
-## Sessions
-
-A session is a saved workspace: both panes' tabs (with the folder and file each was on), any [result lists](#result-lists) in them, the active pane, the [shelf](#shelf), and [linked panes](#linked-panes).
-
-- `:mksession NAME` (or `:mks NAME`) saves the current one; saving to an existing name replaces it.
-- `:session NAME` opens it; `:session` alone lists the names, and `Tab` completes them.
-- `:delsession NAME` deletes one.
-
-Sessions are kept in the config file's `sessions` section.
-
-## Thumbnail grid
-
-`zi` (or `:grid`) shows the active pane as a grid of tiles instead of a list: images as thumbnails (turned by their EXIF orientation), folders as their first picture, other files as big icons. `zi` again goes back. Each pane remembers its choice between runs.
-
-Everything works as in the list: the cursor and tags are the same (tagged tiles get a red frame), and `yy`, `dd`, `F5`, `Del`, `cw`, `Ctrl-q`, visual mode, search, the filter, drag and drop and the right-click menu all apply. In the grid `j` / `k` move a whole row down / up and `w` / `b` one tile right / left; `h` and `l` still go to the parent and open. **Ctrl+mouse wheel** (or `:grid 200`) changes the thumbnail size, from 48 to 320 pixels; it is saved as `thumbnail_size`.
-
-Thumbnails are made in the background, scaled down while the image is decoded so big photos load quickly, and the last 3000 are kept in memory. Files inside zip files show icons.
-
-## Terminal
-
-``Ctrl-` `` (or `:terminal`) opens a terminal panel under the panes, starting in the active pane's folder. Type a command and press `Enter`; the output appears above.
-
-- **It follows the pane**: when the active pane opens another folder (or you switch panes), the terminal `cd`s there, unless a command is still running.
-- **The pane follows it**: `cd somewhere` in the terminal opens that folder in the active pane.
-- `↑` / `↓` = command history, `Ctrl-C` = stop the running command, `Ctrl-L` (or `cls` / `clear`) = clear, `Esc` = back to the pane (the terminal stays open), ``Ctrl-` `` from the terminal hides it. While a command runs, what you type goes to it, so you can answer questions like `Continue? [y/n]`.
-- The shell is **PowerShell** on Windows (`pwsh` if installed) and your `$SHELL` (or bash) elsewhere; set `programs.shell` to use another, e.g. `"cmd.exe"` or `"C:\\Program Files\\Git\\bin\\bash.exe"`.
-
-It is a shell reading commands line by line, not a full terminal emulator: commands, scripts, git, compilers and their output work, but programs that draw a full-screen interface (vim, htop, less) don't. For those, `S` opens a real terminal window. Stopping a command with `Ctrl-C` on Windows restarts the shell (in the same folder).
-
-## Share with a phone
-
-`:share` makes the tagged items (or the one under the cursor) downloadable on your local network and shows a **QR code**. Scan it with the phone's camera (on the same Wi-Fi): a page lists the files, tap one to download it, and a folder downloads as a zip. On `..`, `:share` only receives files.
-
-The same page has **Choose files…**, which sends files from the phone (photos, documents) into the pane's folder, with a progress bar each. A name that already exists gets ` (1)` added.
-
-- Only someone with the link can see anything: every address contains a random code, new for each share.
-- Sharing stops after 15 minutes, when you close the window or press `Esc`, or with `:share stop`.
-- If the phone can't open the page, pick another address in the window (computers with VPN, WSL or Hyper-V adapters have several). On Windows, allow VimCommander through the firewall when asked; set a fixed `share.port` so you only need to allow it once.
-
-The `share` section of the config sets `port` (`0` = any free one), `minutes` and `upload` (`false` = the phone can only download).
-
-## SSH folders
-
-`:ssh user@host:/path` opens a folder on an SSH server in the active pane; `:ssh host` opens your home folder there, and `:ssh host:projects` a folder in it. `host` can be an alias from `~/.ssh/config` (with its `HostName`, `User`, `Port`, `IdentityFile` and `ProxyCommand`); `Tab` completes them. The header shows `user@host:/path` and the drive button `ssh host`.
-
-Logging in works like `ssh`: your SSH agent and your keys (`~/.ssh/id_ed25519`, `id_rsa`…) are tried first, then you are asked for the password (or a key's passphrase). The first time you connect to a server, its key fingerprint is shown; when you trust it, it is saved in `~/.ssh/known_hosts`. The connection stays open for both panes until you quit or run `:ssh close`.
-
-In an SSH folder:
-
-| To… | Do this |
-|---|---|
-| move around | as usual: `l`, `h`, `gg`, `/`, `=`, marks, tabs, the [thumbnail grid](#thumbnail-grid) (icons only) and quick view (`Ctrl-q` shows text, Markdown and images) |
-| copy or move between this computer and the server | `F5` / `F6` with the other pane, `yy` / `dd` + `p`, or drag files from the other pane or from Explorer onto it, with the progress dialog; modification times are kept |
-| edit a file | `F4` or `:e`: it is downloaded, opened in your editor, and **uploaded each time you save** it |
-| open a file | `Enter`: a copy is downloaded and opened with its app |
-| rename, new folder, new file | `cw`, `:rename`, `:s`, `:bulkrename`, `F7`, `:touch` |
-| delete | `Del` asks and deletes for good (a server has no trash) |
-| get a shell there | ``Ctrl-` `` (or `S`): the [terminal](#terminal) runs your shell on the server, in this folder, and follows the pane |
-| keep a folder in step | `:mirror` from a local pane to a server pane (or the other way), or `:synchronize` |
-| come back quickly | `:bar add` puts the folder on the launch bar; marks (`ma`) and sessions work too |
-
-Local-only tools (`:find`, `:grep`, `Ctrl-p`, the graph, `gr`, `:dupes`, `:reclaim`, `:share`, the shelf) say so in the status bar. Remote folders don't refresh by themselves: `Ctrl-l` reloads, and after your own file operations they reload anyway. `u` undoes what happened on this computer (a download), not changes on the server.
-
-## FTP folders
-
-`:ftp host` opens an FTP server's folder in the active pane, logged in as `anonymous`; `:ftp user@host/pub/files` logs in as `user`, in that folder, and `:ftp user@host:2121` uses another port. For FTP over TLS (explicit FTPS), write the URL: `:ftp ftps://user@host/path`. The password is taken from `~/.netrc` (`machine host login user password …`) when it's there, else you are asked; it is kept only while the app runs. Paths are shown as `ftp://user@host/path`, and the drive button says `ftp host`.
-
-Everything in the [SSH folders](#ssh-folders) table works the same, except the shell: FTP has none, so the terminal stays on this computer. Each copy or move opens its own login next to the one used for listing, so the server must allow two connections per user. Modification times are kept when the server understands `MFMT`. Listing uses `MLSD` and falls back to the classic `LIST` (Unix and Windows / IIS styles). `:ftp close` (or `:ssh close`) logs out of every server.
-
-## Jobs and the copy queue
-
-Copies, moves, `:synchronize` / `:mirror` and `:zip` run one at a time: one started while another is running waits in a queue, so two big copies to the same disk don't slow each other down. The first job shows the usual progress window, with *Pause* and *Background* (hide the window, keep going in the panel). Queued jobs show in the **jobs panel**, which opens by itself when something is queued and closes when the queue is empty; `:jobs` shows or hides it any time.
-
-Each row in the panel shows the job's progress, with *Pause* / *Resume*, *Cancel* (a waiting job is just removed) and *Next* (run this waiting job next). A paused waiting job is skipped until you resume it. `:jobs pause`, `:jobs resume` and `:jobs cancel` act on all jobs at once. Pausing stops between two chunks of a file; nothing is lost. Trash, delete and undo don't wait in the queue. To run every job at once as before, set `"queue_jobs": false` in the config.
-
-## Global commands
-
-Vim's `:g` works on the file names of the current pane: `:g/PATTERN/CMD` tags every item whose name matches PATTERN, then runs CMD on the tagged items. PATTERN works like `/` search: a regular expression, or a shell pattern if it only has `*` and `?`, with smartcase. `:g!/PATTERN/CMD` and `:v/PATTERN/CMD` take the items that **don't** match. Any punctuation can be the delimiter (`:g#a/b#d`), and an empty pattern reuses the last search.
-
-| CMD | Does |
-|---|---|
-| *(nothing)* | only tag the items: `:g/\.jpe?g$/` |
-| `d` | move them to the trash (asks first): `:g/\.log$/d` |
-| `d!` | delete them permanently (asks first) |
-| `y`, `y x` | yank them, into register `x` if given; then `p` in the other folder |
-| `normal KEYS` | press KEYS, e.g. `:g/^IMG_/normal <F5>` copies them to the other pane |
-| any `:` command | run it on the tagged items: `:g/ /s/ /_/g`, `:g/\.md$/zip notes`, `:v/\.py$/shelf add` |
-
-## Folder graph
+### Folder graph
 
 Quick view (`Ctrl-q`) on a folder, or on `..` for the current folder, shows it as a graph in the style of Obsidian's graph view. The mode button (*Tree*, *Sunburst*, *Treemap*, *Timeline*, *Types*, *Notes*, *Code*), or `:graph MODE`, switches between seven views. `gG` or `:graph` opens the same graph in a big window of its own.
 
@@ -757,28 +762,161 @@ Imports of libraries outside the folder are left out, as are `build`, `dist`, `t
 
 Up to 400 nodes are shown (300 notes); scanning runs in the background and stops when you move on. Folders inside zip files show the usual summary instead. The options are saved in the config's `graph` section; `:graph off` goes back to the plain folder summary in quick view.
 
-## Zip files
+## Panes and layout
 
-`Enter` (or `l`) on a `.zip` (also `.jar` and `.whl`) opens it like a folder; `h` leaves it. Inside you can browse, preview with `Ctrl-q`, open files (they are extracted to a temporary folder first), and copy files and folders out with `F5`, `yy` / `p` or a drag. Zip files are read-only: you can't move, rename or delete items in them or copy files into them. If you set a program for `.zip` in `programs.open_with`, `Enter` runs that program instead.
+### Thumbnail grid
 
-## zoxide
+`zi` (or `:grid`) shows the active pane as a grid of tiles instead of a list: images as thumbnails (turned by their EXIF orientation), folders as their first picture, other files as big icons. `zi` again goes back. Each pane remembers its choice between runs.
 
-[zoxide](https://github.com/ajeetdsouza/zoxide) remembers the folders you use and jumps to them by a few letters of their names. If it is installed, VimCommander records every folder a pane opens (folders inside zip files are skipped), using the same database as your shell's `z`.
+Everything works as in the list: the cursor and tags are the same (tagged tiles get a red frame), and `yy`, `dd`, `F5`, `Del`, `cw`, `Ctrl-q`, visual mode, search, the filter, drag and drop and the right-click menu all apply. In the grid `j` / `k` move a whole row down / up and `w` / `b` one tile right / left; `h` and `l` still go to the parent and open. **Ctrl+mouse wheel** (or `:grid 200`) changes the thumbnail size, from 48 to 320 pixels; it is saved as `thumbnail_size`.
+
+Thumbnails are made in the background, scaled down while the image is decoded so big photos load quickly, and the last 3000 are kept in memory. Files inside zip files show icons.
+
+### Miller columns
+
+`:set columns` shows each pane as three columns, like ranger or macOS Finder's column view: the parent folder (with the current folder highlighted) on the left, the list in the middle, and on the right what's under the cursor: a folder's items, or a preview of a file (text or image). The columns follow as you move. `:set nocolumns` goes back to the plain list (`:set columns!` toggles); the choice is saved.
+
+### Linked panes
+
+`:linkpanes` (or `:link`) ties the two panes together for comparing mirror trees, such as a project and its backup copy, or two versions of a folder:
+
+- When you open a subfolder in the active pane, the other pane opens the same subfolder on its side. If it doesn't exist there, the status bar says so.
+- When you move the cursor, the other pane's cursor goes to the item with the same name.
+- Items that only one side has are colored purple.
+
+The path headers show `[linked]`. `:linkpanes` again unlinks them. (`:compare` and `:synchronize` work as before for copying the differences.)
+
+### Sessions
+
+A session is a saved workspace: both panes' tabs (with the folder and file each was on), any [result lists](#result-lists) in them, the active pane, the [shelf](#shelf), and [linked panes](#linked-panes).
+
+- `:mksession NAME` (or `:mks NAME`) saves the current one; saving to an existing name replaces it.
+- `:session NAME` opens it; `:session` alone lists the names, and `Tab` completes them.
+- `:delsession NAME` deletes one.
+
+Sessions are kept in the config file's `sessions` section.
+
+## Comparing folders and files
+
+### Compare and synchronize
+
+**`:compare`** compares the two panes' folders (not their subfolders) by name, size and date, and tags in each pane the items that are newer there or only there. Then `F5` copies the tagged items across.
+
+**`:synchronize`** compares the two folder trees, subfolders included, like Total Commander's "Synchronize dirs". A list shows every difference with a proposed direction:
+
+| Shown | Meaning | Proposed |
+|---|---|---|
+| only left / only right | the item exists on one side | copy it to the other side |
+| left newer / right newer | same name, different date | copy the newer over the older |
+| differ, same time | same date but different size | nothing (you choose) |
+
+Click the arrow in a row to cycle → / ← / ✗ delete / nothing, or select rows and press `>`, `<`, `=` or `x` (delete, for an item that only one side has). Double-click a file that is on both sides to see what changed in a [side-by-side diff](#side-by-side-diff). The checkboxes hide rows by direction, include subfolders or not, and **compare the contents** of same-size files with different dates (slower; equal ones are then left out). **`:mirror`** opens the same list set up to make the *other* pane's folder an exact copy of the *active* one: everything new or changed is copied across, and items only the other side has are marked **✗ delete**. Check the list, change what you like, then press **Mirror**. Deleted local items go to the trash; on an [SSH server](#ssh-folders) they are deleted. Both work between a local folder and a server folder, for deploying a site or backing up a project.
+
+**Synchronize** copies everything, with the progress dialog; newly created files can be undone with `u`. Files are the same when size and date match within 2 seconds (FAT drives store times in 2-second steps).
+
+### Side-by-side diff
+
+`gd` (or `:diffthis`) shows two text files side by side, like vimdiff: the two tagged files, or else the files under the cursors of the two panes (left pane on the left). `:diffthis FILE` compares the file under the cursor with FILE. Files inside zip files work too.
+
+- Lines are lined up: changed lines are yellow with the changed part darker, lines only on the left red, lines only on the right green, with an empty row opposite. The current change is blue.
+- Both sides scroll together. *Ignore white space* compares lines without their spacing.
+- Binary files (and files over 8 MB) are only reported as the same or different.
+
+| Keys | Action |
+|---|---|
+| `]c` / `[c`, `n` / `N` | next / previous change |
+| `j` / `k`, `Ctrl-d` / `Ctrl-u`, `Ctrl-f` / `Ctrl-b` | scroll a line, half a page, a page |
+| `gg` / `G` | top / bottom |
+| `Tab` | the other side (to select and copy text) |
+| `q`, `Esc` | close |
+
+### Git
+
+When the folder is in a git repository (and `git` is installed), file names are colored by their status, and the path header shows the branch, with `↑2 ↓1` when it is ahead of or behind its upstream:
+
+| Color | Meaning |
+|---|---|
+| orange | changed since the last commit; a folder is orange when something inside it changed |
+| green | new: not committed yet (untracked or just added) |
+| pink | a merge conflict |
+| grey | ignored by `.gitignore` |
+
+The status is updated whenever the folder changes, in the background. Hovering a colored name shows its status.
+
+- **`:git`** shows the branch and how many files are changed, new or in conflict.
+- **`:git changed`** shows every changed and new file of the whole repository as a [result list](#result-lists), so you can view, copy or trash them.
+- **`:git diff`** (or `gd` when the other pane's cursor isn't on a file) shows the file under the cursor next to its last committed version, in the [diff window](#side-by-side-diff).
+
+`:set nogit` turns it off. Set `programs.git` if git isn't on your `PATH`; the colors are in the config's `colors` section.
+
+## Terminal
+
+``Ctrl-` `` (or `:terminal`) opens a terminal panel under the panes, starting in the active pane's folder. Type a command and press `Enter`; the output appears above.
+
+- **It follows the pane**: when the active pane opens another folder (or you switch panes), the terminal `cd`s there, unless a command is still running.
+- **The pane follows it**: `cd somewhere` in the terminal opens that folder in the active pane.
+- `↑` / `↓` = command history, `Ctrl-C` = stop the running command, `Ctrl-L` (or `cls` / `clear`) = clear, `Esc` = back to the pane (the terminal stays open), ``Ctrl-` `` from the terminal hides it. While a command runs, what you type goes to it, so you can answer questions like `Continue? [y/n]`.
+- The shell is **PowerShell** on Windows (`pwsh` if installed) and your `$SHELL` (or bash) elsewhere; set `programs.shell` to use another, e.g. `"cmd.exe"` or `"C:\\Program Files\\Git\\bin\\bash.exe"`.
+
+It is a shell reading commands line by line, not a full terminal emulator: commands, scripts, git, compilers and their output work, but programs that draw a full-screen interface (vim, htop, less) don't. For those, use the [terminal pane](#terminal-pane), or `S` for a terminal window. Stopping a command with `Ctrl-C` on Windows restarts the shell (in the same folder). `programs.shell` may also be `"wsl"` or `"wsl:Ubuntu"`: bash in WSL, with the folders translated both ways.
+
+### Terminal pane
+
+`Ctrl-w t` (or `:vterm`) turns the **other pane** into a real terminal, started in this pane's folder. Full-screen programs work there: vim, htop, less, mc, git's pager, `ssh`, password prompts, colors and the mouse wheel.
+
+- **Which shell**: `:vterm wsl` (your default WSL distro), `:vterm wsl:Ubuntu`, `:vterm pwsh`, `:vterm cmd`, `:vterm bash`, or any command line. Without one it uses `vterm.shell` from the config, else `programs.shell`, else PowerShell on Windows and your `$SHELL` elsewhere.
+- **It follows the file pane both ways**: when the file pane opens a folder, the shell `cd`s there (only while it waits at its prompt with nothing typed, so it never types into a running program); a `cd` in the shell opens that folder in the file pane. For WSL the folders are translated: `D:\Pr\Ws` is `/mnt/d/Pr/Ws`, and Linux folders such as `~/proj` open as `\\wsl.localhost\Ubuntu\home\you\proj`. Set `"vterm": {"follow": false}` to keep them apart; the terminal pane's own folder still follows the shell, so `F5` copies into the shell's folder.
+- **Keys**: everything goes to the program, except `Ctrl-w` followed by `h` `j` `k` `l` `w` or `p`, which goes back to the files (`Ctrl-w .` sends a `Ctrl-w` to the program; `Ctrl-w` followed by any other key sends both). `Tab` or `Ctrl-w w` from the files goes back into the terminal.
+- **Scrolling and copying**: `Shift-PgUp` / `Shift-PgDn` or the mouse wheel scroll back (in less or vim the wheel scrolls their text). Drag to select, double-click selects a word; `Ctrl-Shift-C` copies, `Ctrl-Shift-V` or `Shift-Insert` pastes, right-click copies the selection or, without one, pastes.
+- `exit` (or `:vterm off`) closes it and the pane shows its files again.
+
+The folder following uses the OSC 7 escape sequence: bash gets it through `PROMPT_COMMAND`, PowerShell and cmd through their prompt. Other shells (zsh, fish) work but don't follow.
+
+**WSL in the drive menu**: on Windows, the drive menu (`Alt-F1` / `Alt-F2`) lists your WSL distros; one opens `\\wsl.localhost\NAME\home`, so you can copy between Windows and Linux with `F5`.
+
+**`:mount`** in an [SSH folder](#ssh-folders) mounts it in the terminal pane's Linux (WSL on Windows) with `sshfs`, at `~/mnt/HOST`, and `cd`s there, so Linux tools see the server's files as local ones. It types the command in the terminal pane (opening one if needed), so you can answer a password prompt. `:umount` unmounts it. It needs `sshfs` in Linux (`sudo apt install sshfs`).
+
+## Servers and sharing
+
+### SSH folders
+
+`:ssh user@host:/path` opens a folder on an SSH server in the active pane; `:ssh host` opens your home folder there, and `:ssh host:projects` a folder in it. `host` can be an alias from `~/.ssh/config` (with its `HostName`, `User`, `Port`, `IdentityFile` and `ProxyCommand`); `Tab` completes them. The header shows `user@host:/path` and the drive button `ssh host`.
+
+Logging in works like `ssh`: your SSH agent and your keys (`~/.ssh/id_ed25519`, `id_rsa`…) are tried first, then you are asked for the password (or a key's passphrase). The first time you connect to a server, its key fingerprint is shown; when you trust it, it is saved in `~/.ssh/known_hosts`. The connection stays open for both panes until you quit or run `:ssh close`.
+
+In an SSH folder:
 
 | To… | Do this |
 |---|---|
-| jump to the best match | `:z proj vim`: the keywords must appear in that order, and the last one in the folder's own name (zoxide's rule) |
-| choose from a list | `gz` or `:zi [KEYWORDS]`: type to filter, `↑`/`↓` or `Ctrl-j`/`Ctrl-k` to move, `Enter` jumps, `Shift-Enter` opens a new tab |
-| go to a path | `:z PATH` also accepts a real folder path |
+| move around | as usual: `l`, `h`, `gg`, `/`, `=`, marks, tabs, the [thumbnail grid](#thumbnail-grid) (icons only) and quick view (`Ctrl-q` shows text, Markdown and images) |
+| copy or move between this computer and the server | `F5` / `F6` with the other pane, `yy` / `dd` + `p`, or drag files from the other pane or from Explorer onto it, with the progress dialog; modification times are kept |
+| edit a file | `F4` or `:e`: it is downloaded, opened in your editor, and **uploaded each time you save** it |
+| open a file | `Enter`: a copy is downloaded and opened with its app |
+| rename, new folder, new file | `cw`, `:rename`, `:s`, `:bulkrename`, `F7`, `:touch` |
+| delete | `Del` asks and deletes for good (a server has no trash) |
+| get a shell there | ``Ctrl-` `` (or `S`): the [terminal](#terminal) runs your shell on the server, in this folder, and follows the pane |
+| keep a folder in step | `:mirror` from a local pane to a server pane (or the other way), or `:synchronize` |
+| come back quickly | `:bar add` puts the folder on the launch bar; marks (`ma`) and sessions work too |
 
-Install zoxide with `winget install ajeetdsouza.zoxide` (Windows), `brew install zoxide` (macOS) or your Linux package manager. VimCommander finds it on `PATH`; otherwise set `programs.zoxide` to its full path. On Windows with WSL, Windows and WSL each have their own zoxide database.
+Local-only tools (`:find`, `:grep`, `Ctrl-p`, the graph, `gr`, `:dupes`, `:reclaim`, `:share`, the shelf) say so in the status bar. Remote folders don't refresh by themselves: `Ctrl-l` reloads, and after your own file operations they reload anyway. `u` undoes what happened on this computer (a download), not changes on the server.
 
-## Drag and drop
+### FTP folders
 
-- **Drag from a pane** to another app, to the other pane, or onto a folder in either pane.
-- **Drop from another app** onto a pane to copy the files into that pane's folder, or onto a folder row to copy them into that folder.
-- A plain drop **copies**. Hold **Shift** while dropping to **move**.
-- Dropping files onto a pane that already shows their folder does nothing.
+`:ftp host` opens an FTP server's folder in the active pane, logged in as `anonymous`; `:ftp user@host/pub/files` logs in as `user`, in that folder, and `:ftp user@host:2121` uses another port. For FTP over TLS (explicit FTPS), write the URL: `:ftp ftps://user@host/path`. The password is taken from `~/.netrc` (`machine host login user password …`) when it's there, else you are asked; it is kept only while the app runs. Paths are shown as `ftp://user@host/path`, and the drive button says `ftp host`.
+
+Everything in the [SSH folders](#ssh-folders) table works the same, except the shell: FTP has none, so the terminal stays on this computer. Each copy or move opens its own login next to the one used for listing, so the server must allow two connections per user. Modification times are kept when the server understands `MFMT`. Listing uses `MLSD` and falls back to the classic `LIST` (Unix and Windows / IIS styles). `:ftp close` (or `:ssh close`) logs out of every server.
+
+### Share with a phone
+
+`:share` makes the tagged items (or the one under the cursor) downloadable on your local network and shows a **QR code**. Scan it with the phone's camera (on the same Wi-Fi): a page lists the files, tap one to download it, and a folder downloads as a zip. On `..`, `:share` only receives files.
+
+The same page has **Choose files…**, which sends files from the phone (photos, documents) into the pane's folder, with a progress bar each. A name that already exists gets ` (1)` added.
+
+- Only someone with the link can see anything: every address contains a random code, new for each share.
+- Sharing stops after 15 minutes, when you close the window or press `Esc`, or with `:share stop`.
+- If the phone can't open the page, pick another address in the window (computers with VPN, WSL or Hyper-V adapters have several). On Windows, allow VimCommander through the firewall when asked; set a fixed `share.port` so you only need to allow it once.
+
+The `share` section of the config sets `port` (`0` = any free one), `minutes` and `upload` (`false` = the phone can only download).
 
 ## Configuration
 
@@ -805,6 +943,7 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
   "monospace": {"enabled": true, "family": "", "size": 0},
   "theme": "",
   "show_hidden": false,
+  "natural_sort": true,
   "git": true,
   "columns": false,
   "rules": [],
@@ -842,8 +981,11 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
 | `colors` | colors of the cursor, tagged items, search matches and more; see [Colors](#colors) |
 | `graph` | the [folder graph](#folder-graph): `enabled` (in quick view), `depth` (1–3), `size_by` (`"size"` or `"count"`), `mode` (`"tree"`, `"sunburst"`, `"treemap"`, `"timeline"`, `"types"`, `"notes"` or `"code"`), `max_nodes` (50–2000) |
 | `which_key_delay` | milliseconds after a prefix key before the [which-key](#which-key-and-command-palette) panel shows; `0` = never |
+| `vterm` | the [terminal pane](#terminal-pane): `shell` (`""` = `programs.shell`, else the system's; or `"wsl"`, `"wsl:Ubuntu"`, `"pwsh"`, `"cmd"`, `"bash"`, a command line) and `follow` (the shell and the file pane `cd` along with each other) |
+| `langmap` | like vim's `langmap`: keys typed in another keyboard layout act as the keys at the same place on a US keyboard, so you don't have to switch layouts for `j`, `gg`, `dd`, `:` or `Ctrl-d`. `"cyrillic"` (default) covers Ukrainian and Russian (`о` = `j`, `пп` = `gg`, `Ж` = `:`); `""` turns it off. Vim's format works too: comma-separated `FROM;TO` lists or pairs, e.g. `"cyrillic,õ[ü]"`. Only non-ASCII characters can be mapped, so the US layout is never affected. It applies to normal and visual mode keys (counts, marks and registers included), not to the `:` / `/` line, and not to the character after `f` / `F`, so `fс` still finds a name starting with Cyrillic `с` |
 | `monospace` | monospace font for the file lists, path headers, command line, status bar and quick view. `family` `""` picks the first installed of Cascadia Mono, Consolas, JetBrains Mono, SF Mono, Menlo, DejaVu Sans Mono, …; `size` `0` = same size as the window font; `"enabled": false` uses the window font instead |
 | `show_hidden` | show hidden files at start (`za` toggles) |
+| `natural_sort` | numbers in names sort by value, `run2` before `run10` (`:set natural`) |
 | `git` | [git](#git) status colors and branch (`:set git`) |
 | `columns` | [Miller columns](#miller-columns) (`:set columns`) |
 | `rules` | the [folder rules](#folder-rules) for `:rules` |
@@ -890,7 +1032,9 @@ The `colors` section sets how the cursor and tagged items look. Changes show as 
   "git_new": "#2ea043",
   "git_conflict": "#ff4f8b",
   "git_ignored": "#808080",
-  "linked_missing": "#a056e0"
+  "linked_missing": "#a056e0",
+  "line_number": "",
+  "line_number_current": ""
 }
 ```
 
@@ -905,10 +1049,12 @@ The `colors` section sets how the cursor and tagged items look. Changes show as 
 | `header_active`, `header_active_text` | the path header of the active pane |
 | `git_modified`, `git_new`, `git_conflict`, `git_ignored` | names of changed, new, conflicting and ignored files in a [git](#git) repository |
 | `linked_missing` | with [linked panes](#linked-panes), items the other side doesn't have |
+| `line_number` | line numbers (`:set nu` / `:set rnu`); `""` = the theme's (the system's placeholder-text gray) |
+| `line_number_current` | the cursor row's number, in bold, like vim's `CursorLineNr`; `""` = the theme's (the system's accent) |
 
 Write colors as `#rrggbb`, as `#rrggbbaa` where `aa` is the opacity (`00` transparent to `ff` solid; `4d` is about 30%), or as a name such as `orange`. `""` uses the system theme's color. A color the app can't read is reported in the status bar and the default is used.
 
-`"theme": "catppuccin-mocha"` (or `"mocha"`) gives the whole window [Catppuccin Mocha](https://catppuccin.com/palette) colors: the lists, dialogs, graph, diff and grep views. It also replaces the defaults above with Mocha ones (a blue cursor, red tags, peach / green git colors); a color you changed from its default is kept. `""` goes back to the system look. Both apply as soon as you save the file.
+`"theme": "catppuccin-mocha"` (or `"mocha"`) gives the whole window [Catppuccin Mocha](https://catppuccin.com/palette) colors: the lists, dialogs, graph, diff and grep views. It is also flat: the line numbers and column headers sit on the list's background, the launch bar, tabs and menus have no frames or bevels, and the scroll bars are thin. It also replaces the defaults above with Mocha ones (a blue cursor, red tags, peach / green git colors); a color you changed from its default is kept. `""` goes back to the system look. Both apply as soon as you save the file.
 
 ### Programs
 
@@ -972,77 +1118,7 @@ The output folder holds `VimCommander.exe` (or `VimCommander`), the `_internal` 
 
 ## Development
 
-```text
-main.py                  entry point
-vimcommander/
-  vim.py                 modal key engine (pure Python, no Qt)
-  app.py                 main window, key dispatch, ':' commands, context menu, status bar
-  pane.py                tabs, drive button, directory model, file view, drag and drop
-  fileops.py             copy / move / trash / delete / undo in a background thread
-  dialogs.py             progress, name clash and zoxide dialogs
-  results.py             result lists: the :find search, searches in a thread
-  preview.py             quick view
-  archive.py             zip files as read-only folders (pure Python)
-  rename.py              multi-rename patterns and :s (pure Python)
-  winshell.py            the Windows Explorer context menu (ctypes, Windows only)
-  zoxide.py              zoxide calls and its keyword matching (pure Python)
-  graph.py               folder, note and code graphs: scanning, imports, layouts (pure Python)
-  graphview.py           the graph widget: tree, sunburst, notes and code (drawing, zoom, hover, clicks)
-  actions.py             descriptions of every action and command (pure Python)
-  whichkey.py            the which-key panel
-  fuzzy.py               fuzzy matching (pure Python)
-  palette.py             command palette and fuzzy file finder
-  bulkrename.py          :bulkrename dialog
-  compare.py             folder tree comparison (pure Python)
-  sync.py                :synchronize dialog
-  grep.py                search inside files (pure Python)
-  grepdialog.py          the :grep window
-  textdiff.py            side-by-side line alignment (pure Python)
-  diffview.py            the diff window
-  shelf.py               the shelf panel
-  sizing.py              tool windows sized to fit the screen
-  cleanup.py             :reclaim and :dupes (pure Python)
-  gitstatus.py           git status, branch, file at HEAD (pure Python)
-  rules.py               folder rules: parsing and planning (pure Python)
-  rulesdialog.py         the :rules preview
-  grid.py                thumbnail loading and the grid's tiles
-  terminal.py            the terminal panel
-  share.py               the :share web server (pure Python)
-  sharedialog.py         the :share window with the QR code
-  remote.py              SSH / SFTP folders: connections, listing, copying (pure Python, paramiko)
-  activity.py            activity scan, calendar heatmap and recent files
-  clipboard.py           files on the system clipboard (copy / cut, Explorer, KDE, GNOME)
-  bar.py                 launch bar, button editor, program launching
-  config.py              settings file: location, defaults, load / save
-build.py                 standalone build with PyInstaller
-tools/screenshots.py     renders the README screenshots from a demo folder
-tests/
-  test_vim.py            key engine tests
-  test_config.py         config file, user key maps, command lines
-  test_archive.py        zip browsing and extraction
-  test_rename.py         rename patterns and :s
-  test_zoxide.py         zoxide keyword matching
-  test_graph.py          graph scanning, sizes, layouts, note links and code imports
-  test_find.py           :find, :grep, zip, text diff
-  test_space.py          :reclaim, :dupes, git status parsing, folder rules
-  test_share.py          :share downloads, uploads and safety; terminal commands
-  test_remote.py         sftp:// paths, listing and copying against a test SSH server
-  sshserver.py           the small SSH server those tests use
-  test_tools.py          fuzzy matching, descriptions, bulk rename, compare, activity
-```
-
-Each key press in a pane becomes a vim-style key name (`"j"`, `"<C-d>"`). `KeyEngine` in `vim.py` collects counts and sequences and returns an action, such as `yank` with count 3. The main window then calls the method `cmd_<action>`. Commands typed after `:` call `ex_<command>`.
-
-To add a key, add a binding to the tables in `vim.py` and a `cmd_<name>` method in `app.py`. Also update the `HELP` text in `app.py` and this README.
-
-Run the tests:
-
-```bash
-python -m unittest discover -s tests                         # all tests
-python -m unittest tests.test_vim.KeyEngineTest.test_count   # one test
-```
-
-For scripted GUI testing without a display, set `QT_QPA_PLATFORM=offscreen`, and set `VIMCOMMANDER_CONFIG` to a temporary file so your own settings aren't touched.
+The source layout, tests and how to add keys and commands are in [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## Roadmap
 
@@ -1071,7 +1147,7 @@ Ideas for later, roughly in order. None of these exist yet.
 
 Things that work differently from what you might expect (planned features are in the [Roadmap](#roadmap)):
 
-- Zip files are read-only, and only zip-based formats (`.zip`, `.jar`, `.whl`) open as folders.
+- Zip files are read-only apart from deleting items, and only zip-based formats (`.zip`, `.jar`, `.whl`) open as folders.
 - Permanent deletes (`Shift-Del`) and files replaced by *Overwrite* can't be undone.
 - Undo history and named registers last only while the app runs; macros and command history are saved. So do result lists: a tab that showed one reopens its folder.
 - Git status needs the `git` program; very big repositories may color a moment after the list appears.

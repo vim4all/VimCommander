@@ -33,6 +33,15 @@ class ArchiveTest(unittest.TestCase):
         with self.assertRaises(OSError):
             archive.list_dir(self.zip, "nope")
 
+    def test_remove(self):
+        archive.remove(self.zip, ["dir"])
+        self.assertEqual([n for n, *_ in archive.list_dir(self.zip, "")], ["top.txt"])
+        with zipfile.ZipFile(self.zip) as z:
+            self.assertEqual(z.read("top.txt"), b"hello")
+        with self.assertRaises(FileNotFoundError):
+            archive.remove(self.zip, ["nope.txt"])
+        self.assertEqual([f for f in os.listdir(self.dir.name)], ["a.zip"])  # no temp file left
+
     def test_extract_folder_and_file(self):
         out = os.path.join(self.dir.name, "out")
         archive.extract(os.path.join(self.zip, "dir"), out)

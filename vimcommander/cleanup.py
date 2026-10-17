@@ -20,12 +20,20 @@ CACHE_DIRS = {
     "dist": "build output", "obj": ".NET build",
     ".dart_tool": "Dart cache", "Pods": "CocoaPods", "DerivedData": "Xcode build",
     ".angular": "Angular cache", ".svelte-kit": "SvelteKit build", "coverage": "test coverage",
+    ".pio": "PlatformIO build", ".ipynb_checkpoints": "Jupyter checkpoints", ".vs": "Visual Studio cache",
+    "Debug": "IDE build output", "Release": "IDE build output",
+    "Objects": "Keil build output", "Listings": "Keil listings",
 }
 # "build" or "dist" alone could be anything; they count only next to a project file.
-NEEDS_PROJECT = {"build", "dist", "target", "obj", "coverage"}
+NEEDS_PROJECT = {"build", "dist", "target", "obj", "coverage", "Debug", "Release", "Objects", "Listings"}
 PROJECT_FILES = {"package.json", "setup.py", "pyproject.toml", "Cargo.toml", "pom.xml",
-                 "build.gradle", "build.gradle.kts", "CMakeLists.txt", "Makefile", "go.mod"}
-PROJECT_EXTS = (".csproj", ".sln", ".fsproj", ".vbproj")
+                 "build.gradle", "build.gradle.kts", "CMakeLists.txt", "Makefile", "go.mod",
+                 ".cproject", "platformio.ini"}  # Eclipse / STM32CubeIDE, PlatformIO
+PROJECT_EXTS = (".csproj", ".sln", ".fsproj", ".vbproj", ".vcxproj",
+                ".cproj", ".atsln", ".uvprojx", ".uvproj", ".ewp")  # Atmel Studio, Keil, IAR
+# Ansys Electronics Desktop: X.aedtresults holds the solutions of X.aedt (solving
+# again rebuilds them); X.aedt.lock is left behind when AEDT crashes.
+AEDT_RESULTS, AEDT_LOCK = ".aedtresults", ".aedt.lock"
 
 UNITS = {"k": 1024, "m": 1024 ** 2, "g": 1024 ** 3, "t": 1024 ** 4}
 
@@ -66,6 +74,8 @@ def reclaim(root: str, show_hidden: bool = True, stop: threading.Event | None = 
         for d in dirs:
             path = os.path.join(folder, d)
             what = CACHE_DIRS.get(d)
+            if d.endswith(AEDT_RESULTS) and d[:-len(AEDT_RESULTS)] + ".aedt" in files:
+                what = "Ansys results (solve again to rebuild)"
             if what and (d not in NEEDS_PROJECT or project) and not os.path.islink(path):
                 size, _, _ = folder_size(path, stop)
                 if size:
@@ -79,7 +89,9 @@ def reclaim(root: str, show_hidden: bool = True, stop: threading.Event | None = 
                 st = os.stat(path, follow_symlinks=False)
             except OSError:
                 continue
-            if st.st_size >= big and st.st_mtime < cutoff:
+            if f.endswith(AEDT_LOCK) and f[:-len(".lock")] in files and st.st_mtime < time.time() - 86400:
+                found.append((st.st_size, path, "Ansys lock file, delete it only while AEDT is closed"))
+            elif st.st_size >= big and st.st_mtime < cutoff:
                 days = int((time.time() - st.st_mtime) // 86400)
                 found.append((st.st_size, path, f"big, unchanged for {days} days, {_human(st.st_size)}"))
     found.sort(reverse=True)

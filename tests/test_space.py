@@ -49,6 +49,25 @@ class SpaceTest(unittest.TestCase):
         self.assertEqual(rel, ["app/node_modules", "big/old.iso", "app/build", "lib/__pycache__"])
         self.assertIn("npm packages", found[0][1])
 
+    def test_reclaim_embedded_and_ansys(self):
+        old = time.time() - 3 * 86400
+        write(self.p("stm/.cproject"), "<x/>")
+        write(self.p("stm/Debug/app.elf"), "e" * 400)
+        write(self.p("avr/blink.cproj"), "<x/>")
+        write(self.p("avr/Release/blink.hex"), "h" * 300)
+        write(self.p("notes/Debug/log.txt"), "n")  # no project file: kept
+        write(self.p("esp/.pio/build/fw.bin"), "f" * 200)
+        write(self.p("sim/coil.aedt"), "a")
+        write(self.p("sim/coil.aedtresults/s.dat"), "r" * 500)
+        write(self.p("sim/other.aedtresults/s.dat"), "r" * 50)  # no other.aedt: kept
+        write(self.p("sim/coil.aedt.lock"), "", mtime=old)
+        found = [item for batch in cleanup.reclaim(self.root) for item in batch]
+        rel = {os.path.relpath(p, self.root).replace(os.sep, "/"): note for p, note in found}
+        self.assertEqual(sorted(rel), ["avr/Release", "esp/.pio", "sim/coil.aedt.lock",
+                                       "sim/coil.aedtresults", "stm/Debug"])
+        self.assertIn("Ansys results", rel["sim/coil.aedtresults"])
+        self.assertIn("AEDT is closed", rel["sim/coil.aedt.lock"])
+
     def test_duplicates(self):
         write(self.p("a/one.txt"), "same content")
         write(self.p("b/two.txt"), "same content")

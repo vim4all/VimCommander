@@ -26,11 +26,14 @@ ACTIONS = {
     "parent": "parent folder", "open": "open folder or file", "home": "home folder",
     "back": "back in folder history", "forward": "forward in folder history",
     "alternate": "previous folder", "switch_pane": "other pane", "left_pane": "left pane",
+    "vterm": "terminal in the other pane",
     "right_pane": "right pane", "reload": "reload both panes", "toggle_hidden": "show / hide hidden files",
     "drives": "drive menu", "new_tab": "new tab", "next_tab": "next tab", "prev_tab": "previous tab",
     "set_mark": "set a mark…", "goto_mark": "go to a mark…", "bar": "launch bar button",
     "zoxide_pick": "jump to a folder (zoxide)", "files": "find files (fuzzy)",
     "goto_file": "go to the file's folder (from a result list)", "grep": "search inside files",
+    "repeat_substitute": "repeat the last :s",
+    "qf_next": "next result, in its folder", "qf_prev": "previous result, in its folder",
     # Selecting
     "tag": "tag / untag", "invert_tags": "invert tags", "select_prompt": "tag by pattern",
     "visual": "visual mode", "reselect": "reselect the last visual range",
@@ -52,7 +55,7 @@ ACTIONS = {
     "shelf_add": "put on the shelf", "shelf": "show / hide the shelf", "diff": "diff two files side by side",
     "record": "record a macro into…", "at": "play a macro… (@: last command)",
     # Views and windows
-    "quickview": "quick view", "grid": "thumbnails / list", "terminal": "terminal panel", "graph_window": "graph window", "activity": "activity heatmap",
+    "quickview": "quick view", "plot": "CSV in quick view: plot / table", "grid": "thumbnails / list", "terminal": "terminal panel", "graph_window": "graph window", "activity": "activity heatmap",
     "context_menu": "context menu", "command": "command line", "palette": "command palette",
     "help": "key reference", "quit": "close tab / quit",
 }
@@ -103,12 +106,13 @@ COMMANDS = {
     "results": ("results", "show the last result list again"),
     "select": ("select PATTERN", "tag matching items"),
     "session": ("session [NAME]", "open a saved session, or list them"),
-    "set": ("set OPTION", "options: nu rnu ic scs hls ws hidden columns git clipboard="),
+    "set": ("set OPTION", "options: nu rnu ic scs hls ws hidden columns git natural clipboard= "
+                          "(saved); hex plot grid quickview linkpanes bar (this session)"),
     "share": ("share [stop]", "send the tagged files to a phone by QR code, and receive files back"),
     "shelf": ("shelf [add|copy|move|zip|list|clear]", "the shelf: collect files, act on them all"),
     "ssh": ("ssh [user@]host[:path] | close", "open a folder on an SSH server in this pane"),
     "shell": ("shell", "terminal here"),
-    "sort": ("sort name|ext|size|time", "sort this pane (-size = reverse)"),
+    "sort": ("sort[!] name|ext|size|time", "sort this pane (! or -size = reverse)"),
     "sync": ("sync", "open this folder in the other pane too"),
     "synchronize": ("synchronize", "compare the panes' folder trees and copy what differs"),
     "tabclose": ("tabclose", "close this tab"),
@@ -118,6 +122,27 @@ COMMANDS = {
     "terminal": ("terminal [COMMAND]", "the terminal panel; it follows the active pane"),
     "touch": ("touch NAME", "new empty file"),
     "branch": ("branch", "list every file below this folder (branch view)"),
+    "pdfmerge": ("pdfmerge [NAME]", "join the tagged PDFs, in the pane's order, into NAME.pdf here"),
+    "pdfextract": ("pdfextract PAGES [NAME]", "copy pages (3, 2-5, 1,4,7-) of the PDF(s) into a new PDF next to it"),
+    "cdo": ("cdo CMD", "run CMD for each item of the result list (tagged, or all): !shell %f or a : command"),
+    "cnext": ("cnext [N]", "the next item of the result list, in its folder (]q)"),
+    "cprevious": ("cprevious [N]", "the previous item of the result list, in its folder ([q)"),
+    "copen": ("copen", "show the pane's result list (same as :results)"),
+    "cclose": ("cclose", "leave the result list: back to the folder it was made in"),
+    "clist": ("clist", "list the items of the result list, numbered"),
+    "colder": ("colder [N]", "the result list before this one (the pane keeps the last 10)"),
+    "cnewer": ("cnewer [N]", "the result list after this one"),
+    "delete": ("delete[!]", "trash the tagged items (or the cursor's); :delete! deletes them for good"),
+    "yank": ("yank [x]", "yank the tagged items (or the cursor's), into register x"),
+    "put": ("put [x]", "paste here (from register x)"),
+    "normal": ("normal KEYS", "run KEYS as if typed in the pane, e.g. :normal 3jyy"),
+    "pwd": ("pwd", "show this pane's folder"),
+    "messages": ("messages", "the last messages from the status bar"),
+    "tabnext": ("tabnext [N]", "the next tab, or tab N"),
+    "tabprevious": ("tabprevious [N]", "the previous tab (N tabs back)"),
+    "tabfirst": ("tabfirst", "the first tab"),
+    "tablast": ("tablast", "the last tab"),
+    "tabonly": ("tabonly", "close the pane's other tabs"),
     "hash": ("hash [md5|sha1|sha256|sha512|check]", "write a checksum file for the tagged items, or verify one"),
     "undo": ("undo", "undo"),
     "undolist": ("undolist", "list what can be undone and redone"),
@@ -125,15 +150,49 @@ COMMANDS = {
     "z": ("z KEYWORDS", "jump with zoxide"),
     "zi": ("zi [KEYWORDS]", "pick a folder from zoxide's list"),
     "zip": ("zip [NAME]", "pack the tagged items into NAME.zip here"),
+    "vterm": ("vterm [SHELL|off]", "a terminal in the other pane: wsl, wsl:NAME, pwsh, cmd, bash…; off closes it"),
+    "mount": ("mount", "mount this SSH folder with sshfs in the terminal pane (WSL on Windows)"),
+    "umount": ("umount", "unmount the SSH folder that :mount mounted"),
 }
 ALIASES = {
     "e": "edit", "noh": "nohlsearch", "quit": "q", "x": "q", "wq": "q", "qall": "qa",
     "quitall": "qa", "wqa": "qa", "xa": "qa", "reg": "registers", "di": "registers",
     "display": "registers", "tabc": "tabclose", "br": "bulkrename", "diff": "compare",
     "res": "results", "link": "linkpanes", "mks": "mksession", "term": "terminal",
+    "cn": "cnext", "cp": "cprevious", "cN": "cprevious", "cprev": "cprevious",
+    "d": "delete", "y": "yank", "pu": "put", "norm": "normal", "mes": "messages", "pw": "pwd",
 }
 
 
 def needs_argument(name: str) -> bool:
     usage = COMMANDS.get(name, ("", ""))[0]
     return any(part.isupper() and "[" not in part for part in usage.split()[1:])
+
+
+# Vim's shortest forms: a command may be typed as any part of its name that starts
+# with these letters (:se = :set, :tabn = :tabnext); they win over other commands
+# starting the same way. Others need as many letters as make them unique.
+SHORTEST = {
+    "set": "se", "shell": "sh", "edit": "e", "help": "h", "quit": "q", "qall": "qa",
+    "delete": "d", "yank": "y", "put": "pu", "normal": "norm", "messages": "mes", "pwd": "pw",
+    "nohlsearch": "noh", "registers": "reg", "display": "di", "marks": "marks", "delmarks": "delm",
+    "undo": "u", "redo": "red", "undolist": "undol", "sort": "sor", "filter": "filt",
+    "grep": "gr", "find": "fin", "terminal": "ter", "mksession": "mks", "cd": "cd",
+    "tabnew": "tabnew", "tabnext": "tabn", "tabprevious": "tabp", "tabclose": "tabc", "tabonly": "tabo",
+    "tabfirst": "tabfir", "tablast": "tabl", "tabmove": "tabm", "tabs": "tabs",
+    "cnext": "cn", "cprevious": "cp", "copen": "cope", "cclose": "ccl", "clist": "cl",
+    "colder": "col", "cnewer": "cnew", "cdo": "cdo",
+}
+
+
+def resolve(typed: str, names) -> tuple[str | None, list[str]]:
+    """The command meant by `typed` among `names`, like vim: the exact name, else
+    one whose shortest form it reaches (SHORTEST), else the only name starting with
+    it. Returns (name, []) or (None, the names it could mean)."""
+    if typed in names:
+        return typed, []
+    for name, short in SHORTEST.items():
+        if name in names and typed.startswith(short) and name.startswith(typed):
+            return name, []
+    found = sorted(n for n in names if n.startswith(typed))
+    return (found[0], []) if len(found) == 1 else (None, found)

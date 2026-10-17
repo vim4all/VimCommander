@@ -17,7 +17,7 @@ import zipfile
 
 from PySide6.QtCore import QFile, QObject, Signal
 
-from . import archive, remote
+from . import archive, pdftools, remote
 
 CHUNK = 1024 * 1024
 
@@ -141,6 +141,8 @@ OPERATIONS = {  # op: (verb while running, verb when done)
     "zip": ("Zipping", "Zipped"),
     "hash": ("Hashing", "Hashed"),
     "verify": ("Verifying", "Verified"),
+    "pdfmerge": ("Merging", "Merged"),
+    "pdfextract": ("Extracting pages from", "Extracted pages from"),
 }
 
 HASHES = ("md5", "sha1", "sha256", "sha512")  # also the checksum files' extensions
@@ -193,6 +195,9 @@ class Job(QObject):
         self.zip_move = False  # trash the sources once the zip is complete
         self.hash_lines: list[str] = []  # "hash": lines of the checksum file (target_dir) being made
         self.bad: list[str] = []  # "verify": files that differ or are missing
+        self.merger: "pdftools.Merger | None" = None  # "pdfmerge": target_dir is the PDF to make
+        self.pages = ""  # "pdfextract": the pages to copy (sources are (pdf, new pdf) pairs)
+        self.overwrite = False  # "pdfextract": replace a new PDF's name that exists (:pdfextract!)
         self._channels: dict[str, object] = {}  # remote host key -> this job's SFTP channel
 
     @property
@@ -255,6 +260,10 @@ class Job(QObject):
                 self.bytes_total = sum(self._size_to_copy(s) for s in self.sources)
             elif self.op == "sync":
                 self.bytes_total = sum(self._tree_size(src) for src, _ in self.sources)
+            elif self.op == "pdfmerge":
+                self.bytes_total = sum(os.path.getsize(src) for src in self.sources if os.path.isfile(src))
+            elif self.op == "pdfextract":
+                self.bytes_total = sum(os.path.getsize(src) for src, _ in self.sources if os.path.isfile(src))
             elif self.op in ("zip", "hash"):
                 self.bytes_total = sum(tree_size(src, self._stop)[0] for src in self.sources)
             elif self.op == "verify":
@@ -280,6 +289,18 @@ class Job(QObject):
                         self._trash(src)
                     except OSError as e:
                         errors.append(f"{os.path.basename(src)}: {e.strerror or e}")
+            if self.op == "pdfmerge":
+                if errors:  # a merge with a document missing would look complete
+                    errors.append(f"Nothing saved: {os.path.basename(self.target_dir)} was not made")
+                    ok = 0
+                elif self.merger:
+                    self._check()
+                    try:
+                        self.merger.save(self.target_dir)
+                        self.undo.append(("created", self.target_dir))
+                    except Exception as e:  # OSError, or PdfiumError from PDFium
+                        errors.append(f"{os.path.basename(self.target_dir)}: {getattr(e, 'strerror', None) or e}")
+                        ok = 0
             if self.op == "hash" and self.hash_lines:
                 with open(self.target_dir, "w", encoding="utf-8", newline="\n") as f:
                     f.write("".join(self.hash_lines))
@@ -294,6 +315,8 @@ class Job(QObject):
             self.finished.emit(f"Cancelled after {ok} item(s)", errors)
             return
         finally:
+            if self.merger:
+                self.merger.close()
             for channel in self._channels.values():
                 try:
                     channel.close()
@@ -549,6 +572,34 @@ class Job(QObject):
                     z.write(path, os.path.join(inner, f))
                     self._advance(os.path.getsize(path))
 
+    # PDF merge: target_dir is the PDF to make; the pages are collected in memory
+    # and saved once all sources are read, so cancelling leaves nothing behind
+
+    def _pdfmerge(self, src: str):
+        if remote.is_remote(src) or archive.inside(src):
+            raise OSError("copy it to this computer first")
+        merger = self.merger
+        if merger is None:
+            try:
+                merger = self.merger = pdftools.Merger()
+            except ImportError:
+                raise OSError("merging PDFs needs pypdfium2 (pip install pypdfium2)") from None
+        merger.add(src)
+        self._advance(os.path.getsize(src))
+
+    def _pdfextract(self, pair: tuple[str, str]):
+        src, dest = pair
+        if remote.is_remote(src) or archive.inside(src):
+            raise OSError("copy it to this computer first")
+        if os.path.lexists(dest) and not self.overwrite:
+            raise OSError(f"{os.path.basename(dest)} already exists")
+        try:
+            pdftools.extract(src, self.pages, dest)
+        except ImportError:
+            raise OSError("extracting pages needs pypdfium2 (pip install pypdfium2)") from None
+        self.undo.append(("created", dest))
+        self._advance(os.path.getsize(src))
+
     # Checksums: target_dir is the checksum file; its extension names the algorithm
 
     def _digest(self, path: str, algorithm: str) -> str:
@@ -598,6 +649,9 @@ class Job(QObject):
     def _delete(self, src: str):
         if loc := remote.parse(src):
             remote.remove_tree(self._channel(loc), loc.path, self._check)
+            return
+        if loc := archive.inside(src):
+            archive.remove(loc[0], [loc[1]])
             return
         delete_path(src)
 

@@ -56,6 +56,7 @@ NORMAL_KEYS = {
     "<Tab>": "switch_pane", "<S-Tab>": "switch_pane",
     "<C-w>w": "switch_pane", "<C-w><C-w>": "switch_pane",
     "<C-w>h": "left_pane", "<C-w>l": "right_pane",
+    "<C-w>t": "vterm",  # a terminal in the other pane
     "<A-F1>": "drives:1", "<A-F2>": "drives:2",
     "<C-t>": "new_tab", "gt": "next_tab", "gT": "prev_tab", "gz": "zoxide_pick",
     "t": "tag", "<Space>": "tag", "T": "invert_tags", "+": "select_prompt",
@@ -72,7 +73,8 @@ NORMAL_KEYS = {
     "<C-q>": "quickview", "gs": "dir_size", "gS": "all_dir_sizes", "gG": "graph_window",
     "<C-S-p>": "palette", "<C-p>": "files", "gr": "activity",
     "g/": "grep", "gf": "goto_file", "gd": "diff", "zs": "shelf_add", "zS": "shelf",
-    "zi": "grid", "<C-`>": "terminal",
+    "zi": "grid", "zp": "plot", "<C-`>": "terminal",
+    "]q": "qf_next", "[q": "qf_prev", "&": "repeat_substitute",  # the next / previous item of the result list, in its folder
     "<Menu>": "context_menu", "<S-F10>": "context_menu",
     "<C-l>": "reload",
     "/": "search", "?": "search_back", "*": "search_like", "#": "search_like_back",
@@ -109,6 +111,81 @@ VISUAL_KEYS = {
 }
 
 VISUAL_ARG_KEYS = MOTION_ARG_KEYS
+
+
+# Like vim's 'langmap': with a Ukrainian or Russian keyboard layout, the keys
+# still mean what they say on a US keyboard (о = j, пп = gg, Ж = :). Only
+# non-ASCII characters are mapped, so the Latin layout is never affected.
+LANGMAPS = {
+    "cyrillic": dict(zip("йцукенгшщзхїъфіывапролджєэячсмитьбюёґ"
+                         "ЙЦУКЕНГШЩЗХЇЪФІЫВАПРОЛДЖЄЭЯЧСМИТЬБЮЁҐ№",
+                         "qwertyuiop[]]assdfghjkl;''zxcvbnm,.``"
+                         "QWERTYUIOP{}}ASSDFGHJKL:\"\"ZXCVBNM<>~~#")),
+}
+
+# Argument keys that stay as typed: f/F jump to a name starting with that character.
+LITERAL_ARGS = {"find_char", "find_char_back"}
+
+
+def _split(spec: str, sep: str) -> list[str]:
+    """Split at `sep`, where a backslash escapes the next character."""
+    parts, cur, i = [], "", 0
+    while i < len(spec):
+        if spec[i] == "\\" and i + 1 < len(spec):
+            cur += spec[i:i + 2]
+            i += 2
+            continue
+        if spec[i] == sep:
+            parts.append(cur)
+            cur = ""
+        else:
+            cur += spec[i]
+        i += 1
+    parts.append(cur)
+    return parts
+
+
+def _unescape(s: str) -> str:
+    out, i = "", 0
+    while i < len(s):
+        if s[i] == "\\" and i + 1 < len(s):
+            i += 1
+        out += s[i]
+        i += 1
+    return out
+
+
+def parse_langmap(spec: str) -> dict[str, str]:
+    """A 'langmap' value as {typed: meant}. The vim format: comma-separated
+    parts, each "FROM;TO" (two equally long lists) or pairs ("аfбd"); a part
+    may also be a built-in name ("cyrillic"). Raises ValueError if malformed."""
+    result: dict[str, str] = {}
+    for part in _split(spec, ","):
+        if not part.strip():
+            continue
+        if part.strip().lower() in LANGMAPS:
+            result.update(LANGMAPS[part.strip().lower()])
+            continue
+        halves = _split(part, ";")
+        if len(halves) % 2 == 1 and len(halves) > 1:
+            raise ValueError(f"langmap: odd number of ';' in {part!r}")
+        if len(halves) == 1:  # pairs
+            chars = _unescape(part)
+            if len(chars) % 2:
+                raise ValueError(f"langmap: {part!r} has an odd number of characters")
+            pairs = list(zip(chars[::2], chars[1::2]))
+        else:
+            pairs = []
+            for src, dst in zip(halves[::2], halves[1::2]):
+                src, dst = _unescape(src), _unescape(dst)
+                if len(src) != len(dst):
+                    raise ValueError(f"langmap: {src!r} and {dst!r} differ in length")
+                pairs += zip(src, dst)
+        for a, b in pairs:
+            if a.isascii():
+                raise ValueError(f"langmap: {a!r} is ASCII; only other characters can be mapped")
+            result[a] = b
+    return result
 
 
 def user_bindings(user: dict[str, dict[str, str]]):
@@ -156,6 +233,19 @@ class KeyEngine:
         self.awaiting: str | None = None  # binding waiting for its argument key
         self.register: str | None = None  # "x typed before the command
         self._register_next = False  # '"' typed, the register name comes next
+        self.langmap: dict[str, str] = {}  # parse_langmap(): typed character -> meant
+
+    def translate(self, key: str) -> str:
+        """Apply the langmap to a typed key: "о" -> "j", "<C-в>" -> "<C-d>"."""
+        if not self.langmap or key.isascii():
+            return key
+        if len(key) == 1:
+            return self.langmap.get(key, key)
+        for prefix in ("<C-S-", "<C-"):
+            if key.startswith(prefix) and len(key) == len(prefix) + 2:
+                meant = self.langmap.get(key[-2], key[-2]).lower()
+                return f"{prefix}{meant}>" if meant.isascii() and meant.isalpha() else key
+        return key
 
     def reset(self) -> None:
         self.count = ""
@@ -182,6 +272,8 @@ class KeyEngine:
 
     def feed(self, key: str) -> Action | None:
         """Feed one key. Returns an Action once a full binding is typed."""
+        if self.awaiting not in LITERAL_ARGS:
+            key = self.translate(key)
         if self._register_next:
             self._register_next = False
             if len(key) == 1 and (key.isalnum() or key in '"+*'):
