@@ -13,6 +13,7 @@ Ctrl-Shift-V / Shift-Insert pastes, right-click copies the selection or pastes.
 
 import copy
 import os
+import re
 import threading
 import time
 
@@ -32,6 +33,14 @@ BRACKETED_PASTE = 2004 << 5
 LEAVE_KEYS = {Qt.Key.Key_H, Qt.Key.Key_J, Qt.Key.Key_K, Qt.Key.Key_L, Qt.Key.Key_W, Qt.Key.Key_P}
 NAMES = ["black", "red", "green", "brown", "blue", "magenta", "cyan", "white"]
 SCROLLBACK = 5000
+# pyte drops the < = > marker of a CSI and reads the rest as the plain sequence:
+# CSI > 4;2 m (modifyOtherKeys, sent by vim) became "underline everything", and
+# CSI > 1 u (kitty keys) "restore the cursor". Only CSI > c (secondary device
+# attributes) is kept, which pyte answers. pyte doesn't know colon parameters
+# either (4:3 = curly underline, 38:2::r:g:b), so SGR ones are rewritten.
+MARKED_CSI = re.compile(r"\x1b\[[<=>][0-9;:]*[ -/]*[@-bd-~]")
+COLON_SGR = re.compile(r"\x1b\[([0-9;]*:[0-9;:]*)m")
+UNFINISHED = re.compile(r"\x1b(\[[0-9;:<=>?]*[ -/]*)?$")  # cut off at the end of a read
 
 
 class TermScreen(pyte.HistoryScreen):
@@ -81,7 +90,7 @@ class TermScreen(pyte.HistoryScreen):
         super().reset_mode(*modes, **kwargs)
 
     def select_graphic_rendition(self, *attrs, **kwargs):
-        if kwargs.get("private"):  # CSI > 4;2 m (xterm's modifyOtherKeys, sent by vim): not colors
+        if kwargs.get("private"):  # CSI ? … m: not colors
             return
         super().select_graphic_rendition(*attrs)
 
@@ -90,6 +99,46 @@ class TermScreen(pyte.HistoryScreen):
             pyte.Screen.index(self)
         else:
             super().index()
+
+
+def _sgr_param(param: str) -> str:
+    """One SGR parameter with colon sub-parameters, in pyte's terms ("" = drop it)."""
+    if ":" not in param:
+        return param
+    parts = param.split(":")
+    if parts[0] == "4":  # underline style: 0 = none, any other = underline
+        return "24" if parts[1:2] == ["0"] else "4"
+    if parts[0] in ("38", "48") and parts[1:2] == ["5"] and len(parts) >= 3:
+        return f"{parts[0]};5;{parts[2]}"
+    if parts[0] in ("38", "48") and parts[1:2] == ["2"]:
+        rgb = [p for p in parts[2:] if p][-3:]  # 38:2::r:g:b has a color space id first
+        return f"{parts[0]};2;{';'.join(rgb)}" if len(rgb) == 3 else ""
+    return ""  # 58 (underline color) and others pyte can't show
+
+
+def clean_csi(text: str) -> str:
+    """The output with the sequences pyte misreads removed or rewritten."""
+    def sgr(m: re.Match) -> str:
+        params = [p for p in map(_sgr_param, m.group(1).split(";")) if p]
+        return f"\x1b[{';'.join(params)}m" if params else ""  # not "\x1b[m", which resets everything
+
+    return COLON_SGR.sub(sgr, MARKED_CSI.sub("", text))
+
+
+class TermStream(pyte.Stream):
+    """pyte's stream, fed through clean_csi(). A sequence split between two reads
+    waits for the rest, so it is cleaned whole."""
+
+    def __init__(self, screen):
+        super().__init__(screen)
+        self._held = ""
+
+    def feed(self, data: str) -> None:
+        data = self._held + data
+        m = UNFINISHED.search(data[-64:])
+        cut = len(data) - len(m.group()) if m else len(data)
+        data, self._held = data[:cut], data[cut:]
+        super().feed(clean_csi(data))
 
 
 class _Pipe(QObject):
@@ -187,7 +236,7 @@ class TermView(QWidget):
         font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         self._set_metrics(font)
         self.vt = TermScreen(80, 24, self._send)
-        self.stream = pyte.Stream(self.vt)
+        self.stream = TermStream(self.vt)
         self._repaint = QTimer(self, singleShot=True, interval=12)
         self._repaint.timeout.connect(self.update)
         self._blink = True
@@ -285,7 +334,7 @@ class TermView(QWidget):
         try:
             self.stream.feed(text)
         except Exception:  # a sequence pyte can't handle: drop it, keep the parser going
-            self.stream = pyte.Stream(self.vt)
+            self.stream = TermStream(self.vt)
         if self.vt.title != self.title:
             self.title = self.vt.title
             self.title_changed.emit(self.title)

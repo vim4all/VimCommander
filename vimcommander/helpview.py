@@ -64,7 +64,7 @@ def render(text: str, query: str = "") -> str:
 
 
 class HelpDialog(QDialog):
-    def __init__(self, text: str, parent=None):
+    def __init__(self, text: str, parent=None, topic: str = ""):
         super().__init__(parent)
         self.setWindowTitle("VimCommander keys and commands")
         self.text = text
@@ -77,6 +77,7 @@ class HelpDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(self.filter)
         layout.addWidget(self.view, 1)
+        self.filter.setText(topic)  # :help TOPIC
         self.update_text()
         fit_window(self, 900, 900)
         self.view.setFocus()

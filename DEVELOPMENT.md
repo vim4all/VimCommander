@@ -17,9 +17,11 @@ vimcommander/
   tabular.py             CSV parsing: the table, and every numeric column for the plot (pure Python)
   plotview.py            the plot (zp, .raw): strips, min-max bars per pixel, scatter, hover, zoom
   ltspice.py             LTspice .raw waveforms: binary / text, real / AC, operating points (pure Python)
+  mdrender.py            Markdown to Qt rich text: md2doc callouts, shaded tables, figures (pure Python)
   notebook.py            Jupyter notebooks as Markdown and images, for quick view (pure Python)
   cubemx.py              STM32CubeMX .ioc projects: chip, clocks, pins, peripherals (pure Python)
   archive.py             zip files as read-only folders (pure Python)
+  trash.py               the system trash: listing, restoring, deleting for good (pure Python)
   rename.py              multi-rename patterns and :s (pure Python)
   winshell.py            the Windows Explorer context menu (ctypes, Windows only)
   zoxide.py              zoxide calls and its keyword matching (pure Python)
@@ -37,6 +39,8 @@ vimcommander/
   textdiff.py            side-by-side line alignment (pure Python)
   diffview.py            the diff window
   shelf.py               the shelf panel
+  music.py               the player's playlists: audio files, album order, .m3u, shuffle (pure Python)
+  player.py              the music player: QtMultimedia, the bottom bar, the playlist pane
   sizing.py              tool windows sized to fit the screen
   cleanup.py             :reclaim and :dupes (pure Python)
   memmap.py              firmware memory maps: GNU ld / Keil .map and ELF parsing (pure Python)
@@ -70,6 +74,7 @@ tests/
   test_find.py           :find, :grep, zip, text diff, PDF merge and page extraction
   test_tabular.py        CSV tables, the plot's columns, number labels
   test_ltspice.py        LTspice .raw formats
+  test_mdrender.py       Markdown rendering: callouts, shaded tables, lists, math, md2doc figures
   test_preview.py        natural sort, notebooks, .ioc projects, the quick view's plot
   test_memmap.py         GNU ld / Keil map and ELF parsing
   test_termpane.py       WSL paths, shells, OSC 7, cd lines, sshfs, the terminal screen
@@ -78,6 +83,8 @@ tests/
   test_remote.py         sftp:// paths, listing and copying against a test SSH server
   sshserver.py           the small SSH server those tests use
   test_tools.py          fuzzy matching, descriptions, bulk rename, compare, activity
+  test_trash.py          the trash on Linux and Windows, restoring, the saved undo history
+  test_music.py          playlists, .m3u, the player's order, repeat, shuffle and removing tracks
 ```
 
 ## Keys and commands

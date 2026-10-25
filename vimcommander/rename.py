@@ -3,11 +3,14 @@
 Patterns use {name} (name without extension), {ext} (extension with its dot)
 and {n} (1, 2, 3...; {n:3} pads to 001). Substitutions are vim-style
 s/regex/replacement/flags with flags g (every match) and i (ignore case).
+increment() is vim's Ctrl-a / Ctrl-x for the number in a name, CASES its
+gU / gu / g~.
 """
 
 import re
 
 FIELD = re.compile(r"\{(name|ext|n)(?::(\d+))?\}")
+NUMBER = re.compile(r"[0-9]+")
 
 
 def split_name(name: str, is_dir: bool = False) -> tuple[str, str]:
@@ -26,6 +29,26 @@ def format_name(pattern: str, name: str, n: int, is_dir: bool = False) -> str:
         return stem if m.group(1) == "name" else ext
 
     return FIELD.sub(field, pattern)
+
+
+def increment(name: str, delta: int, is_dir: bool = False) -> str | None:
+    """Add `delta` to the last number in the name (not in the extension), like
+    vim's Ctrl-a: img_0099.jpg + 1 = img_0100.jpg, v10 - 1 = v9. Leading zeros keep
+    the width; a "-" before the number is a separator, not a sign, so it stops at 0.
+    None if the name has no number."""
+    stem, ext = split_name(name, is_dir)
+    found = list(NUMBER.finditer(stem))
+    if not found:
+        return None
+    m = found[-1]
+    digits = m.group()
+    value = str(max(0, int(digits) + delta))
+    if len(digits) > 1 and digits[0] == "0":
+        value = value.zfill(len(digits))
+    return stem[:m.start()] + value + stem[m.end():] + ext
+
+
+CASES = {"upper": str.upper, "lower": str.lower, "toggle_case": str.swapcase}
 
 
 def parse_substitute(line: str) -> tuple[re.Pattern, str, int]:

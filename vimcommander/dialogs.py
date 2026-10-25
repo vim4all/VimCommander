@@ -1,13 +1,14 @@
-"""Dialogs: file operation progress, name clash question, pack / unpack, zoxide folder picker."""
+"""Dialogs: file operation progress, name clash question, pack / unpack, zoxide folder picker, trash."""
 
 import os
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFormLayout, QDialogButtonBox, QLabel, QLineEdit,
-                               QListWidget, QMessageBox, QProgressBar, QVBoxLayout, QWidget)
+from PySide6.QtCore import QEvent, QItemSelectionModel, Qt, QTimer, Signal
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QFormLayout, QDialogButtonBox,
+                               QHBoxLayout, QLabel, QLineEdit, QListWidget, QMessageBox, QProgressBar, QPushButton,
+                               QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from . import archive
+from . import archive, trash
 from .fileops import Job
 from .pane import human_size
 from .zoxide import matches
@@ -172,6 +173,123 @@ class ZoxideDialog(QDialog):
             self.list.setCurrentRow(max(0, min(self.list.currentRow() + step, self.list.count() - 1)))
         elif e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self._choose(bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier))
+        else:
+            super().keyPressEvent(e)
+
+
+class TrashDialog(QDialog):
+    """`:trash`: what is in the system trash, newest first, filtered as you type.
+
+    Enter = put back where it was, Shift+Enter = into `here` (the active pane's
+    folder), Shift+Del = delete for good, Ctrl+A = select all. `action` and
+    `chosen` say what to do once the dialog is accepted.
+    """
+
+    def __init__(self, items: list[trash.Item], text: str, here: str, parent: QWidget):
+        super().__init__(parent)
+        self.items = items
+        self.here = here
+        self.action = ""  # "restore", "restore_here" or "purge"
+        self.chosen: list[trash.Item] = []
+        self.setWindowTitle("Trash")
+        fit_window(self, 900, 520)
+        self.filter = QLineEdit(text)
+        self.filter.setPlaceholderText("filter by name or folder")
+        self.filter.textChanged.connect(self._refresh)
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(["Name", "Was in", "Deleted", "Size"])
+        self.tree.setRootIsDecorated(False)
+        self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.tree.setUniformRowHeights(True)
+        self.tree.itemActivated.connect(lambda *_: self._choose("restore"))
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        buttons = QHBoxLayout()
+        for label, action in (("Restore", "restore"), ("Restore to this folder", "restore_here"),
+                              ("Delete for good", "purge")):
+            button = QPushButton(label)
+            button.setAutoDefault(False)
+            button.clicked.connect(lambda _=False, a=action: self._choose(a))
+            buttons.addWidget(button)
+        buttons.addStretch(1)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.filter)
+        layout.addWidget(self.tree, 1)
+        layout.addWidget(self.status)
+        layout.addLayout(buttons)
+        self.filter.installEventFilter(self)  # its own Shift+Del (cut) and Ctrl+A would win
+        self.tree.installEventFilter(self)
+        self._refresh()
+        self.tree.setColumnWidth(0, 280)
+        self.tree.setColumnWidth(1, 360)
+
+    def _refresh(self) -> None:
+        words = self.filter.text().casefold().split()
+        self.shown = [i for i in self.items
+                      if all(w in (i.original or i.path).casefold() for w in words)]
+        self.tree.clear()
+        for item in self.shown[:5000]:
+            size = item.size()
+            when = datetime.fromtimestamp(item.deleted).strftime("%Y-%m-%d %H:%M") if item.deleted else ""
+            row = QTreeWidgetItem([item.name + ("/" if item.is_dir else ""), item.folder or "?", when,
+                                   "" if size is None else human_size(size)])
+            row.setTextAlignment(3, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            row.setToolTip(1, item.original or item.path)
+            self.tree.addTopLevelItem(row)
+        if self.shown:
+            self.tree.setCurrentItem(self.tree.topLevelItem(0))
+        self.status.setText(f"{len(self.shown)} of {len(self.items)} items.   Enter = restore, "
+                            f"Shift+Enter = restore to {self.here}, Shift+Del = delete for good, "
+                            "Ctrl+A = all, Esc = close")
+
+    def selected(self) -> list[trash.Item]:
+        rows = sorted(self.tree.indexOfTopLevelItem(i) for i in self.tree.selectedItems())
+        return [self.shown[r] for r in rows if 0 <= r < len(self.shown)]
+
+    def _choose(self, action: str) -> None:
+        if not (chosen := self.selected()):
+            return
+        if action == "purge":
+            answer = QMessageBox.warning(
+                self, "Delete for good", f"Delete {len(chosen)} item(s) from the trash for good?\n\n"
+                "This can't be undone.", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        self.action, self.chosen = action, chosen
+        self.accept()
+
+    def eventFilter(self, obj, e):
+        if e.type() == QEvent.Type.KeyPress:
+            ctrl = e.modifiers() & Qt.KeyboardModifier.ControlModifier
+            shift = e.modifiers() & Qt.KeyboardModifier.ShiftModifier
+            if (e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) or (ctrl and e.key() == Qt.Key.Key_A)
+                    or (shift and e.key() == Qt.Key.Key_Delete)):
+                self.keyPressEvent(e)
+                return True
+        return super().eventFilter(obj, e)
+
+    def keyPressEvent(self, e):
+        mods = e.modifiers()
+        ctrl = mods & Qt.KeyboardModifier.ControlModifier
+        shift = mods & Qt.KeyboardModifier.ShiftModifier
+        step = {Qt.Key.Key_Down: 1, Qt.Key.Key_Up: -1, Qt.Key.Key_PageDown: 10,
+                Qt.Key.Key_PageUp: -10}.get(e.key())
+        if ctrl:
+            step = {Qt.Key.Key_J: 1, Qt.Key.Key_N: 1, Qt.Key.Key_K: -1, Qt.Key.Key_P: -1}.get(e.key(), step)
+        if step and self.tree.topLevelItemCount():
+            row = self.tree.indexOfTopLevelItem(self.tree.currentItem())
+            row = max(0, min(row + step, self.tree.topLevelItemCount() - 1))
+            flag = (QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows
+                    if shift else QItemSelectionModel.SelectionFlag.ClearAndSelect
+                    | QItemSelectionModel.SelectionFlag.Rows)
+            self.tree.setCurrentItem(self.tree.topLevelItem(row), 0, flag)
+        elif ctrl and e.key() == Qt.Key.Key_A:
+            self.tree.selectAll()
+        elif e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._choose("restore_here" if shift else "restore")
+        elif e.key() == Qt.Key.Key_Delete and shift:
+            self._choose("purge")
         else:
             super().keyPressEvent(e)
 

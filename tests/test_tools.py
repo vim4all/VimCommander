@@ -53,7 +53,9 @@ class ResolveTest(unittest.TestCase):
         names = {m[3:] for m in dir(MainWindow) if m.startswith("ex_")}
         for typed, name in (("se", "set"), ("sh", "shell"), ("d", "delete"), ("dis", "display"), ("tabn", "tabnext"),
                             ("tabp", "tabprevious"), ("pdfe", "pdfextract"), ("bulk", "bulkrename"),
-                            ("mes", "messages"), ("norm", "normal"), ("cope", "copen"), ("q", "q"), ("e", "e")):
+                            ("mes", "messages"), ("norm", "normal"), ("cope", "copen"), ("q", "q"), ("e", "e"),
+                            ("no", "noremap"), ("nn", "nnoremap"), ("nm", "nmap"), ("vn", "vnoremap"),
+                            ("unm", "unmap"), ("so", "source"), ("sor", "sort"), ("mapc", "mapclear")):
             self.assertEqual(actions.resolve(typed, names), (name, []), typed)
         name, could_be = actions.resolve("tab", names)
         self.assertIsNone(name)

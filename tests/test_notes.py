@@ -5,27 +5,6 @@ import unittest
 from vimcommander import mdnotes
 
 
-class PrepareTest(unittest.TestCase):
-    def test_wikilinks(self):
-        out = mdnotes.prepare("See [[Some note]] and [[folder/x#Head|the x]].")
-        self.assertIn("[Some note](wikilink:Some%20note)", out)
-        self.assertIn("[the x](wikilink:folder/x%23Head)", out)
-
-    def test_embed(self):
-        self.assertEqual(mdnotes.prepare("![[pic.png|300]]"), "![pic.png](wikilink:pic.png)")
-
-    def test_code_blocks_untouched(self):
-        text = "```\n[[not a link]]\n```\n[[link]]"
-        out = mdnotes.prepare(text).splitlines()
-        self.assertEqual(out[1], "[[not a link]]")
-        self.assertEqual(out[3], "[link](wikilink:link)")
-
-    def test_front_matter(self):
-        out = mdnotes.prepare("---\ntags: [a]\n---\n# Title").splitlines()
-        self.assertEqual(out[:3], ["```yaml", "tags: [a]", "```"])
-        self.assertEqual(out[-1], "# Title")
-
-
 class ResolveTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

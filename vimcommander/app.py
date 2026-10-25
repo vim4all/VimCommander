@@ -17,7 +17,7 @@ from datetime import datetime
 from PySide6.QtCore import QEvent, QFile, QFileSystemWatcher, QObject, QPoint, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDialog, QHBoxLayout, QInputDialog, QLabel, QSizePolicy,
-                               QLineEdit, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QSplitter, QVBoxLayout,
+                               QLineEdit, QListWidget, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QSplitter, QVBoxLayout,
                                QWidget)
 
 import tempfile
@@ -35,14 +35,14 @@ from .terminal import Terminal
 from .sync import SyncDialog
 from .whichkey import WhichKey, pretty
 from .bar import BarItem, LaunchBar, default_items, default_terminal, item_for_path, run_command
-from . import termshell, theme, wsl, zoxide
-from .dialogs import PackDialog, ProgressDialog, UnpackDialog, ZoxideDialog, ask_conflict
+from . import music, termshell, theme, trash, wsl, zoxide
+from .dialogs import PackDialog, ProgressDialog, TrashDialog, UnpackDialog, ZoxideDialog, ask_conflict
 from .jobs import QUEUED_OPS, JobsPanel
 from .fileops import HASHES, Job, SizeJob, unique_dest
 from .pane import DIR_SIZES, NATURAL, SORT_KEYS, Entry, Pane, Results, child_name, human_size, set_colors
 from .results import Search, branch_paths, changed_files, find_paths, parse_find
-from .rename import check_names, format_name, parse_substitute
-from .vim import NORMAL, VISUAL, Action, KeyEngine, parse_langmap, user_bindings
+from .rename import CASES, check_names, format_name, increment, parse_substitute
+from .vim import NORMAL, VISUAL, Action, KeyEngine, parse_langmap, split_keys, user_bindings
 from .rulesdialog import RulesDialog, group_steps
 from .sizing import fit_window
 
@@ -58,6 +58,9 @@ SPECIAL_KEYS = {
     Qt.Key.Key_Left: "<Left>", Qt.Key.Key_Right: "<Right>",
     Qt.Key.Key_Home: "<Home>", Qt.Key.Key_End: "<End>",
     Qt.Key.Key_PageUp: "<PgUp>", Qt.Key.Key_PageDown: "<PgDown>", Qt.Key.Key_Menu: "<Menu>",
+    Qt.Key.Key_MediaPlay: "<MediaPlay>", Qt.Key.Key_MediaPause: "<MediaPlay>",
+    Qt.Key.Key_MediaTogglePlayPause: "<MediaPlay>", Qt.Key.Key_MediaNext: "<MediaNext>",
+    Qt.Key.Key_MediaPrevious: "<MediaPrev>", Qt.Key.Key_MediaStop: "<MediaStop>",
     **{getattr(Qt.Key, f"Key_F{i}"): f"<F{i}>" for i in range(1, 13)},
 }
 SPECIAL_KEYS = {int(k.value): v for k, v in SPECIAL_KEYS.items()}
@@ -96,7 +99,8 @@ HISTORY_SIZE = 100
 RECENT_SIZE = 200  # files kept in :recent
 
 # Actions that '.' repeats (vim's "changes"); ':' commands are listed in REPEATABLE_EX.
-REPEATABLE = {"paste", "cut", "cut_motion", "trash", "delete", "copy_other", "move_other"}
+REPEATABLE = {"paste", "cut", "cut_motion", "trash", "delete", "copy_other", "move_other",
+              "increment", "decrement", *CASES, *(name + "_motion" for name in CASES)}
 REPEATABLE_EX = {"rename", "mkdir", "touch", "s"}
 
 # :set options: name -> (config key, short names)
@@ -140,6 +144,9 @@ def pattern_regex(text: str, ignorecase: bool = True, smartcase: bool = True) ->
 
 # :g/pattern/cmd, :g!/pattern/cmd and :v/pattern/cmd (any non-word character as the delimiter)
 GLOBAL = re.compile(r"^(g(?:lobal)?!?|v(?:global)?)([^\w\s\\\"|])(.*)$")
+# A vim range before a : command: %, or one or two addresses (3, ., $, 'a, '<, +2, .-1).
+_ADDRESS = r"(?:\d+|\.|\$|'[a-z<>])?(?:[+-]\d*)*"
+RANGE = re.compile(rf"(%|(?=[\d.$'+-]){_ADDRESS})(?:,({_ADDRESS}))?(?=[a-zA-Z!&]|$)")
 # What :g runs for vim's line commands: d = trash, d! = delete, y = yank (into a register with y x)
 GLOBAL_ACTIONS = {"d": "trash", "delete": "trash", "d!": "delete", "delete!": "delete",
                   "y": "yank", "yank": "yank"}
@@ -162,7 +169,7 @@ def split_global(rest: str, delimiter: str) -> tuple[str, str]:
 
 
 # Commands whose argument is completed as a path by Tab on the ':' line.
-PATH_COMMANDS = {"cd", "mkdir", "touch", "rename", "tabnew", "find", "bar"}
+PATH_COMMANDS = {"cd", "mkdir", "touch", "rename", "tabnew", "find", "bar", "play"}
 # Commands that read the folder with local file functions: not for sftp:// folders.
 LOCAL_ONLY = "this works on folders of this computer, not on SSH folders"
 
@@ -172,6 +179,10 @@ HELP = """\
 <b>Navigate</b>: h, - or Backspace = parent folder, l or Enter = open, gh or ~ = home
 &nbsp;&nbsp;Ctrl-o / Ctrl-i = back / forward in folder history, Ctrl-l = reload
 &nbsp;&nbsp;Tab, Ctrl-w w = other pane, Ctrl-w h / Ctrl-w l = left / right pane
+&nbsp;&nbsp;Ctrl-w o = only this pane (again: both), Ctrl-w x = swap the panes' folders and tabs
+&nbsp;&nbsp;Ctrl-w c = close this pane, Ctrl-w v / Ctrl-w s = both panes, the other one here, Ctrl-w p = other pane
+&nbsp;&nbsp;:only, :close, :vsplit [PATH] = the same as Ctrl-w o, Ctrl-w c, Ctrl-w v; Ctrl-w r = swap too
+&nbsp;&nbsp;Ctrl-w '=' = equal widths, Ctrl-w | = widest, Ctrl-w &lt; / Ctrl-w &gt; = narrower / wider (3 Ctrl-w &gt; = 15%)
 &nbsp;&nbsp;Alt-F1 / Alt-F2 = drive menu for the left / right pane (or click the drive button)
 <b>Tabs</b>: Ctrl-t = new tab, gt / gT = next / previous tab (3gt = tab 3), :tabnew [PATH], :tabclose
 <b>Marks</b>: ma = set mark a on this file, 'a = jump to it (kept between runs), :marks lists them
@@ -179,14 +190,18 @@ HELP = """\
 &nbsp;&nbsp;drop files on a program button to open them with it, on empty space to add buttons
 <b>Select</b>: t or Space = tag, T = invert tags, + or :select *.txt, :unselect PATTERN, Esc = clear
 &nbsp;&nbsp;mouse: click = move the cursor, Ctrl+click = tag one item, Shift+click = tag a range
-&nbsp;&nbsp;v = visual mode (y/d act on the range, o = other end), gv = reselect last range
+&nbsp;&nbsp;v = visual mode (y/d/x act on the range, c = rename, U/u/~ = case, o = other end), gv = reselect last range
 <b>Files</b>: yy = copy, dd = cut, p = paste here (3yy yanks 3 items)
 &nbsp;&nbsp;yf / yd / yn = copy file path / folder path / file name to the clipboard
 &nbsp;&nbsp;F5 = copy to other pane, F6 = move to other pane, Del/F8 = move to trash
 &nbsp;&nbsp;Alt-F5 = pack into a zip in the other pane, Alt-F9 = unpack zips into the other pane
 &nbsp;&nbsp;gb = branch view (all files below this folder), :hash [sha256|md5|…] = checksum file, :hash check = verify it
-&nbsp;&nbsp;Shift-Del = delete permanently, u = undo the last copy / move / rename / trash
-&nbsp;&nbsp;cw/F2 = rename, cW = rename without extension, F7 = new folder, za = show/hide hidden files
+&nbsp;&nbsp;Shift-Del or DD = delete permanently, u = undo the last copy / move / rename / trash; ga / gA = gs / gS
+&nbsp;&nbsp;cw/F2 = rename, cW = rename without extension, F7 = new folder, za = show/hide hidden files (zo / zm = show / hide)
+&nbsp;&nbsp;I / A = rename with the cursor at the start / end, cc = type a new name, C = a new name, keeping the extension
+&nbsp;&nbsp;gUU / guu / g~~ = name to UPPER / lower / switched case; with a motion too: gUj, gu3j, g~G
+&nbsp;&nbsp;Ctrl-a / Ctrl-x = add / subtract 1 (5 Ctrl-a: 5) to the last number in the name: img_0099 → img_0100
+&nbsp;&nbsp;g Ctrl-a / g Ctrl-x = tagged or visual items get 1, 2, 3… (vim's g Ctrl-a); . repeats
 &nbsp;&nbsp;F3 = view, F4 = edit (programs set in the config file), S = terminal here
 &nbsp;&nbsp;Ctrl-q = quick view in the other pane (a folder shows as a graph), gs = folder size, gS = all folder sizes here
 &nbsp;&nbsp;gG or :graph = graph window; :graph 1|2|3, size|count, tree|sunburst|treemap|timeline|types|notes|code, on|off
@@ -198,13 +213,19 @@ HELP = """\
 &nbsp;&nbsp;matches are highlighted (:noh clears), smartcase; *.jpg works as a shell pattern
 &nbsp;&nbsp;=pattern = show only matching names (= and Enter on an empty line clears), :filter PATTERN
 <b>Vim</b>: yj, d3j, yG, ygg (operator + motion), Y = yy, . = repeat the last change, @: = repeat the last : command
-&nbsp;&nbsp;u / Ctrl-r = undo / redo (:undolist), "ayy / "ap = named register, "+yy / "+p = system clipboard, :reg
+&nbsp;&nbsp;u / Ctrl-r = undo / redo, kept between runs (:undolist), :trash = restore from the trash, "ayy / "ap = named register, "+yy / "+p = system clipboard, :reg
 &nbsp;&nbsp;qa … q = record macro a, @a = play it, @@ = play the last one again, 5@a = five times
 &nbsp;&nbsp;{ / } = previous / next group (folders, each extension), 50% = halfway, Ctrl-e / Ctrl-y = scroll
 &nbsp;&nbsp;'' = back to before the last jump, Ctrl-^ or :cd - = previous folder, Ctrl-g = file details
 &nbsp;&nbsp;gx = open with the system app, :e FILE = edit, ZZ / ZQ / :q = close tab or quit, :qa = quit
 &nbsp;&nbsp;:tabs, :tabmove N, :tabn / :tabp / :tabfirst / :tablast / :tabonly, :set clipboard=unnamedplus (y / p use the system clipboard)
 &nbsp;&nbsp;:d / :d! = trash / delete, :y / :pu = yank / put, :normal KEYS, & = repeat the last :s, :pwd, :messages
+&nbsp;&nbsp;ranges: :'&lt;,'&gt;CMD (: in visual mode), :%CMD, :3,8CMD, :.,.+4CMD (4: types it), :'a = the rows, tagged, then CMD
+&nbsp;&nbsp;:nnoremap ,d :delete&lt;CR&gt;, :nmap, :vmap, :map, :unmap, :mapclear; :let mapleader = "," for &lt;leader&gt;
+&nbsp;&nbsp;:source FILE = run its : commands; the vimcommanderrc next to the config runs at start (like a vimrc)
+&nbsp;&nbsp;Ctrl-c or Ctrl-[ = Esc, here and on the command line; q: / q/ = command / search history window (Enter runs, e edits)
+&nbsp;&nbsp;:command NAME REPLACEMENT = a : command for the session, :help TOPIC = only the help lines about TOPIC
+&nbsp;&nbsp;:!CMD: % = the file's name, %:p full path, %:h folder, %:t name, %:r without extension, %:e extension
 <b>Tools</b>: Ctrl-Shift-p = command palette, Ctrl-p = find files (fuzzy, zoxide-ranked), gr = activity calendar
 &nbsp;&nbsp;:bulkrename = rename in an editor, :compare = tag differences, :synchronize = sync the panes' folders
 &nbsp;&nbsp;:graph sunburst / treemap = disk usage, :graph timeline = when folders changed, :graph types = what they hold; after g, z, y, ", m, ', q, @, Ctrl-w the next keys are listed
@@ -233,6 +254,10 @@ HELP = """\
 &nbsp;&nbsp;Ctrl-w t or :vterm [wsl|wsl:NAME|pwsh|cmd|bash] = a real terminal in the other pane (vim, htop work)
 &nbsp;&nbsp;in it: Ctrl-w h/l/w = back to the files, Shift-PgUp = scroll back, Ctrl-Shift-C / V = copy / paste, exit = close
 &nbsp;&nbsp;:mount / :umount = mount this SSH folder with sshfs in the terminal pane (WSL on Windows)
+<b>Music</b>: gm = play the tagged items, the folder or .m3u under the cursor, or from the file under the cursor
+&nbsp;&nbsp;gM = pause / resume, ]m / [m = next / previous track, media keys too; a slim player bar shows at the bottom
+&nbsp;&nbsp;Ctrl-w m = the playlist in the other pane (Enter play, Space pause, n N, ← → seek, { } speed, d remove, q close)
+&nbsp;&nbsp;:play off = stop, :play shuffle | repeat | volume 50 | speed 1.5 | seek +10 | save NAME (an .m3u8 here)
 <b>Memory map</b>: Ctrl-q on a linker .map (GNU ld, Keil) or .elf = Flash / RAM bars and a treemap of sections, objects, functions
 <b>Share</b>: :share = QR code for a phone to download the tagged files and send files back; :share stop
 <b>SSH</b>: :ssh user@host[:path] = a server's folder in this pane (F5 / F6 copy across, F4 edits and uploads
@@ -242,6 +267,7 @@ HELP = """\
 &nbsp;&nbsp;:set nu / rnu / ic / scs / hls / ws / hidden / natural (no… to turn off, …! to toggle, …? to show)
 &nbsp;&nbsp;:set hex / plot / grid / qv / lp / bar = views for this session (quick view, linked panes)
 &nbsp;&nbsp;command line: Up/Down history, Ctrl-w word, Ctrl-u line, Ctrl-r Ctrl-f file name, Ctrl-r Ctrl-p path
+&nbsp;&nbsp;Ctrl-r a = the paths in register a (Ctrl-r " the last yank, Ctrl-r : the last command, Ctrl-r / the last search)
 <b>Drag and drop</b>: drop = copy, Shift+drop = move. Works with other apps too.
 <b>Commands</b>: :q &nbsp; :cd PATH &nbsp; :mkdir NAME &nbsp; :touch NAME &nbsp; :rename NAME &nbsp; (Tab completes)
 &nbsp;&nbsp;:se = :set, :tabn = :tabnext, :bulk = :bulkrename (any unique start, as in vim); :rename! / :pdfextract! = replace an existing file
@@ -279,6 +305,8 @@ def key_name(event: QKeyEvent) -> str | None:
         return "<C-^>"
     if ctrl and key in (int(Qt.Key.Key_QuoteLeft.value), int(Qt.Key.Key_Dead_Grave.value)):
         return "<C-`>"
+    if ctrl and key == int(Qt.Key.Key_BracketLeft.value):  # vim's other Esc
+        return "<Esc>"
     text = event.text()
     return text if len(text) == 1 and text.isprintable() else None
 
@@ -288,14 +316,16 @@ class CommandLine(QLineEdit):
 
     Vim's command-line keys: Up/Down or Ctrl-p/Ctrl-n recall history, Ctrl-w
     deletes a word, Ctrl-u everything before the cursor, Ctrl-b / Ctrl-e go to
-    the start / end, Ctrl-r Ctrl-f inserts the file name under the cursor,
-    Ctrl-r Ctrl-p its full path, Ctrl-r Ctrl-d the current folder.
+    the start / end, Ctrl-r Ctrl-f (or Ctrl-w) inserts the file name under the
+    cursor, Ctrl-r Ctrl-p its full path, Ctrl-r Ctrl-d the current folder, Ctrl-r x
+    the paths in register x (Ctrl-r : the last command, Ctrl-r / the last search).
+    Ctrl-c and Ctrl-[ cancel, like Esc.
     """
 
     cancelled = Signal()
     complete = Signal(bool)  # Tab (False) or Shift-Tab (True)
     history = Signal(int)  # -1 = older, 1 = newer
-    insert_request = Signal(str)  # "name", "path" or "folder"
+    insert_request = Signal(str)  # "name", "path", "folder" or "reg:x"
 
     def __init__(self):
         super().__init__()
@@ -315,11 +345,14 @@ class CommandLine(QLineEdit):
             return  # a bare modifier press doesn't end Ctrl-r
         if self._ctrl_r:
             self._ctrl_r = False
-            kinds = {Qt.Key.Key_F: "name", Qt.Key.Key_P: "path", Qt.Key.Key_D: "folder"}
-            if key in kinds:
+            kinds = {Qt.Key.Key_F: "name", Qt.Key.Key_W: "name", Qt.Key.Key_P: "path", Qt.Key.Key_D: "folder"}
+            if ctrl and key in kinds:
                 self.insert_request.emit(kinds[key])
+            elif len(e.text()) == 1 and e.text().isprintable():
+                self.insert_request.emit("reg:" + e.text())
             return
-        if key == Qt.Key.Key_Escape or (key == Qt.Key.Key_Backspace and not self.text()):
+        if (key == Qt.Key.Key_Escape or (key == Qt.Key.Key_Backspace and not self.text())
+                or (ctrl and key in (Qt.Key.Key_C, Qt.Key.Key_BracketLeft))):
             self.cancelled.emit()
         elif key == Qt.Key.Key_Up or (ctrl and key == Qt.Key.Key_P):
             self.history.emit(-1)
@@ -418,11 +451,23 @@ class MainWindow(QMainWindow):
 
         self.settings = config.with_defaults(settings or {})
         self.engine = KeyEngine()
+        # :map / :noremap: mode -> {keys: binding}; "" unbinds (<Nop>). Kept for the session.
+        self.maps: dict[str, dict[str, str]] = {NORMAL: {}, VISUAL: {}}
+        self.base_bindings = (self.engine.bindings, self.engine.arg_bindings)  # without the maps
+        self.leader = "\\"  # <leader>, set with :let mapleader
+        self._map_timer = QTimer(self, singleShot=True)  # 'timeoutlen': a map waiting for more keys
+        self._map_timer.timeout.connect(self.flush_keys)
+        self._key_depth = 0  # maps running maps
+        self._typed_command = ""  # the : command running, by its full name
         self.panes = [Pane(left, self.settings), Pane(right, self.settings)]
         self.active = 0
         # Registers: name -> ("copy" | "cut", paths). '"' is the unnamed one, which
         # always holds the last yank or cut; "+ and "* are the system clipboard.
-        self.registers: dict[str, tuple[str, list[str]]] = {}
+        self.registers: dict[str, tuple[str, list[str]]] = {  # named ones last between runs, like viminfo
+            k: (v[0], [str(p) for p in v[1]]) for k, v in (self.settings.get("registers") or {}).items()
+            if len(k) == 1 and k.isalnum() and isinstance(v, list) and len(v) == 2
+            and v[0] in ("copy", "cut") and isinstance(v[1], list)}
+        self.user_commands: dict[str, str] = {}  # :command, for this session
         self.visual_anchor = 0
         self.last_search = ""
         self.search_origin = 0
@@ -432,8 +477,11 @@ class MainWindow(QMainWindow):
         self.marks: dict[str, list[str]] = {}
         self.last_visual: tuple[int, int] | None = None
         self.last_find: tuple[str, int] | None = None
-        self.undo_stack: list[tuple[str, list[tuple]]] = []  # (description, undo records)
-        self.redo_stack: list[tuple[str, list[tuple]]] = []
+        # (description, undo records, time); kept in undo.json while "persistent_undo" is on
+        self.undo_stack: list[tuple[str, list[tuple], float]] = []
+        self.redo_stack: list[tuple[str, list[tuple], float]] = []
+        if self.settings.get("persistent_undo", True):
+            self.undo_stack, self.redo_stack = config.load_undo()
         # Macros: register -> recorded key presses as [key, modifiers, text].
         self.macros: dict[str, list[list]] = {
             k: v for k, v in (self.settings.get("macros") or {}).items() if isinstance(v, list)}
@@ -501,6 +549,11 @@ class MainWindow(QMainWindow):
         self.terminal.visibilityChanged.connect(self.on_terminal_shown)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.terminal)
         self.terminal.hide()
+        self.player = None  # player.Player, made by the first gm / :play (_player())
+        self.player_bar = None
+        self.playlist_view = None
+        self._player_save_timer = QTimer(self, singleShot=True, interval=800)  # volume drags save once
+        self._player_save_timer.timeout.connect(self._save_player)
         self.share_dialog = None  # a sharedialog.ShareDialog while sharing
         remote.Remote.ask_password = staticmethod(self.ask_password)
         remote.Remote.ask_host = staticmethod(self.ask_host_key)
@@ -586,6 +639,8 @@ class MainWindow(QMainWindow):
 
         self.hide_cmdline()
         self.apply_config()
+        if os.path.isfile(self.rc_path()):
+            QTimer.singleShot(0, lambda: self.ex_source(""))  # once the panes are set up
         grid = self.settings.get("grid")
         for pane, on in zip(self.panes, grid if isinstance(grid, list) else []):
             if on is True:
@@ -609,9 +664,16 @@ class MainWindow(QMainWindow):
         return self.panes[1 - self.active]
 
     def activate(self, index: int) -> None:
+        if self.panes[index].isHidden():  # Ctrl-w o hid it
+            self.show_both_panes()
         if self.panes[index].shows_terminal:  # that pane is a terminal (:vterm): go into it
             self.leave_visual()
             self.panes[index].term.setFocus()
+            self.update_status()
+            return
+        if self.panes[index].shows_playlist:  # the music player's playlist (Ctrl-w m): go into it
+            self.leave_visual()
+            self.panes[index].playlist.setFocus()
             self.update_status()
             return
         self.active = index
@@ -635,12 +697,13 @@ class MainWindow(QMainWindow):
             if key is None:
                 return False
             self.message_label.clear()
-            action = self.engine.feed(key)
             self.whichkey.hide()
             self._whichkey_timer.stop()  # the action may open a dialog and wait in it
-            if action:
-                self.run_action(action.name, action.count, action.arg, action.register)
+            self._map_timer.stop()
+            self.feed_key(key)
             engine = self.engine
+            if engine.pending in engine.bindings.get(engine.mode, {}):  # a map like ",x" next to ","
+                self._map_timer.start(int(self.settings.get("timeoutlen", 1000)))
             delay = self.settings.get("which_key_delay", 500)
             if (engine.pending or engine.awaiting or engine._register_next) and delay:
                 self._whichkey_timer.start(int(delay))
@@ -649,6 +712,23 @@ class MainWindow(QMainWindow):
             self.update_status()
             return True
         return super().eventFilter(obj, event)
+
+    def feed_key(self, key: str) -> None:
+        """One key into the engine; runs the action it completes, then the key that
+        ended a waiting map, if any."""
+        while key:
+            action = self.engine.feed(key)
+            key, self.engine.leftover = self.engine.leftover, None
+            if action:
+                self.run_action(action.name, action.count, action.arg, action.register)
+
+    def flush_keys(self) -> None:
+        """'timeoutlen' passed: the keys typed so far are a whole binding, run it."""
+        self.whichkey.hide()
+        self._whichkey_timer.stop()
+        if action := self.engine.flush():
+            self.run_action(action.name, action.count, action.arg, action.register)
+        self.update_status()
 
     def run_action(self, name: str, count: int | None = None, arg: str | None = None,
                    register: str | None = None) -> None:
@@ -850,6 +930,88 @@ class MainWindow(QMainWindow):
         self.leave_visual()
         self.activate(1)
 
+    # Pane layout (Ctrl-w)
+
+    def show_both_panes(self) -> None:
+        if any(pane.isHidden() for pane in self.panes):
+            for pane in self.panes:
+                pane.show()
+            self.splitter.apply_ratio()
+
+    def _set_ratio(self, ratio: float) -> None:
+        self.show_both_panes()
+        self.splitter.set_ratio(ratio)
+        self._ratio_timer.start()  # saved like a dragged divider
+
+    def cmd_only_pane(self, a):
+        """Ctrl-w o: only this pane, like vim's :only; again, Ctrl-w = or going to the
+        other pane shows both."""
+        other = self.other
+        if other.isHidden():
+            self.show_both_panes()
+            return
+        self.leave_visual()
+        other.hide()
+        self.show_message("Only this pane   (Ctrl-w o again = both)")
+
+    def cmd_close_pane(self, a):
+        """Ctrl-w c / Ctrl-w q: close this pane, so only the other one shows."""
+        if self.other.shows_terminal:
+            self.show_message("The other pane is a terminal   (:vterm off closes it)")
+            return
+        if self.other.shows_playlist:
+            self.show_message("The other pane shows the playlist   (Ctrl-w m or q in it closes it)")
+            return
+        self.leave_visual()
+        self.activate(1 - self.active)
+        self.cmd_only_pane(a)
+
+    def cmd_split_pane(self, a):
+        """Ctrl-w s / Ctrl-w v: both panes, the other one in this folder, like vim's split."""
+        self.show_both_panes()
+        if not self.other.covered:
+            self.other.cd(self.pane.path)
+
+    def ex_only(self, arg):
+        if not self.other.isHidden():
+            self.cmd_only_pane(None)
+
+    def ex_vsplit(self, arg):
+        """:vsplit [PATH]: both panes, the other one in this folder (or PATH)."""
+        self.cmd_split_pane(None)
+        if arg and not self.other.covered:
+            self.other.cd(self._arg_path(arg))
+    ex_split = ex_vsplit
+
+    def ex_close(self, arg): self.cmd_close_pane(None)
+
+    def cmd_equal_panes(self, a): self._set_ratio(0.5)
+    def cmd_maximize_pane(self, a): self._set_ratio(0.9 if self.active == 0 else 0.1)
+
+    def cmd_resize_pane(self, a):
+        step = 0.05 * a.n() * int(a.arg)
+        self._set_ratio(self.splitter.ratio + (step if self.active == 0 else -step))
+
+    def cmd_swap_panes(self, a):
+        """Ctrl-w x: the panes trade their folders, tabs and history; the cursor goes
+        along to the other side."""
+        if any(pane.covered for pane in self.panes):
+            self.show_message("Ctrl-w x doesn't swap a terminal pane or the playlist")
+            return
+        self.leave_visual()
+        self.show_both_panes()
+        states = [pane.tab_state() for pane in self.panes]
+        self._linking = True  # the panes stay where they are linked, only swapped
+        try:
+            for pane, state in zip(self.panes, reversed(states)):
+                pane.set_tab_state(*state)
+        finally:
+            self._linking = False
+        if self.link:
+            self.link = (self.link[1], self.link[0])
+        self.activate(1 - self.active)
+        self.update_quickview()
+
     # Marks
 
     def cmd_set_mark(self, a):
@@ -901,11 +1063,15 @@ class MainWindow(QMainWindow):
         self.pane.view.setFocus()
         self.update_status()
 
-    def cmd_toggle_hidden(self, a):
+    def cmd_toggle_hidden(self, a): self.set_hidden(not self.pane.model.show_hidden)
+    def cmd_show_hidden(self, a): self.set_hidden(a.arg == "on")
+
+    def set_hidden(self, shown: bool) -> None:
         for pane in self.panes:
-            pane.model.show_hidden = not pane.model.show_hidden
-            pane.reload()
-        self.show_message("Hidden files " + ("shown" if self.pane.model.show_hidden else "hidden"))
+            if pane.model.show_hidden != shown:
+                pane.model.show_hidden = shown
+                pane.reload()
+        self.show_message("Hidden files " + ("shown" if shown else "hidden"))
 
     # Selection
 
@@ -978,6 +1144,8 @@ class MainWindow(QMainWindow):
         else:
             self.registers[reg] = (kind, paths)
         self.registers['"'] = (kind, paths)
+        if reg.isalnum():
+            self.save_settings()
         where = "the clipboard" if reg == "+" else f'register "{reg}' if reg != '"' else ""
         verb = "Yanked" if kind == "copy" else "Cut"
         self.show_message(f"{verb} {len(paths)} item(s){' to ' + where if where else ''} - p to paste")
@@ -1105,7 +1273,7 @@ class MainWindow(QMainWindow):
             self.show_message(f"Nothing to {op}")
             return
         entries = [stack.pop() for _ in range(min(count, len(stack)))]
-        records = [r for _, recs in entries for r in reversed(recs)]
+        records = [r for _, recs, _ in entries for r in reversed(recs)]
         job = self.start_job(op, records)
         job.what = entries[0][0] if len(entries) == 1 else f"{len(entries)} changes"
 
@@ -1123,6 +1291,69 @@ class MainWindow(QMainWindow):
             self.cmd_rename(a)
             stem = entry.name if entry.is_dir else os.path.splitext(entry.name)[0]
             self.cmdline.setSelection(len("rename "), len(stem))
+
+    def cmd_rename_at(self, a):
+        """Vim's insert and change keys on the name: I / A = rename with the cursor at
+        the start / end, cc = type a new name, C = a new name before the extension."""
+        entry = self.pane.current_entry()
+        if self.pane.selected_entries():
+            self.cmd_rename(a)
+            return
+        if not entry or entry.is_parent:
+            return
+        ext = "" if entry.is_dir else os.path.splitext(entry.name)[1]
+        text = {"clear": "", "stem": ext}.get(a.arg, entry.name)
+        self.show_cmdline(":", "rename " + text)
+        if a.arg in ("start", "stem"):
+            self.cmdline.setCursorPosition(len("rename "))
+
+    def cmd_upper(self, a): self.change_case(a.name, self.pane.targets(a.n()))
+    cmd_lower = cmd_toggle_case = cmd_upper
+
+    def cmd_upper_motion(self, a):
+        """gU / gu / g~ + a motion: the case of the names from the cursor to where it lands."""
+        paths = set(self._motion_paths(a))
+        self.change_case(a.name.removesuffix("_motion"),
+                         [e for e in self.pane.model.entries if e.path in paths])
+    cmd_lower_motion = cmd_toggle_case_motion = cmd_upper_motion
+
+    def change_case(self, how: str, entries: list[Entry]) -> None:
+        """gU / gu / g~ (U / u / ~ in visual mode): the names in upper / lower / switched case."""
+        if self._read_only():
+            return
+        self.leave_visual()
+        self.rename_following([(e, CASES[how](e.name)) for e in entries if not e.is_parent])
+
+    def cmd_increment(self, a): self._add_to_numbers(a.n(), a.arg == "g")
+    def cmd_decrement(self, a): self._add_to_numbers(-a.n(), a.arg == "g")
+
+    def _add_to_numbers(self, delta: int, steps: bool) -> None:
+        """Ctrl-a / Ctrl-x: add `delta` to the last number in the names of the tagged
+        items (or the one under the cursor). With g, like vim's g Ctrl-a, the first
+        name with a number gets delta, the second 2 × delta, and so on."""
+        if self._read_only():
+            return
+        entries = self.pane.targets()
+        self.leave_visual()
+        pairs = []
+        for e in entries:
+            if (new := increment(e.name, delta * (len(pairs) + 1 if steps else 1), e.is_dir)) is not None:
+                pairs.append((e, new))
+        if not pairs:
+            self.show_message("No number in the name")
+            return
+        self.rename_following(pairs)
+
+    def rename_following(self, pairs: list[tuple[Entry, str]]) -> None:
+        """rename_many(), and the cursor stays on the renamed item, which may have moved."""
+        cur = self.pane.current_entry()
+        follow = next((remote.join(remote.dirname(e.path), new) for e, new in pairs
+                       if cur and e.path == cur.path), None)
+        self.rename_many(pairs)
+        if follow:
+            row = next((i for i, e in enumerate(self.pane.model.entries) if e.path == follow), None)
+            if row is not None:
+                self.pane.set_cursor(row)
 
     def cmd_mkdir(self, a): self.show_cmdline(":", "mkdir ")
     def cmd_new_file(self, a): self.show_cmdline(":", "touch ")
@@ -1243,7 +1474,8 @@ class MainWindow(QMainWindow):
         if job.op in ("undo", "redo"):
             other = self.redo_stack if job.op == "undo" else self.undo_stack
             if job.undo:
-                other.append((job.what, job.undo))
+                other.append((job.what, job.undo, time.time()))
+            self._save_undo()
         elif job.undo:
             self._record(f"{job.op} of {len(job.undo)} item(s)", job.undo)
         if moved := [(r[1], r[2]) for r in job.undo if r[0] in ("moved", "renamed")]:
@@ -1306,6 +1538,7 @@ class MainWindow(QMainWindow):
     def update_quickview(self) -> None:
         if not self.quickview:
             return
+        self.show_both_panes()
         self.pane.show_preview(False)
         self.other.show_preview(True)
         entry = self.pane.current_entry()
@@ -2278,6 +2511,7 @@ class MainWindow(QMainWindow):
         pwsh, cmd, bash or a command line; :vterm off closes it."""
         arg = arg.strip()
         target = self.other
+        self.show_both_panes()
         if arg == "off":
             if target.term:
                 target.close_terminal()
@@ -2385,6 +2619,242 @@ class MainWindow(QMainWindow):
                 remote.is_remote(path) or os.path.isdir(path)):
             pane.cd(path)
             self.update_status()
+
+    # Music player
+
+    def _player(self):
+        """The player, made on first use; None (with a message) without QtMultimedia."""
+        if self.player is None:
+            try:
+                from .player import Player, PlayerBar, PlaylistView
+            except ImportError:
+                self.show_message("The music player needs QtMultimedia: pip install PySide6-Addons")
+                return None
+            self.player = Player(self, self.settings.get("player") or {})
+            self.player.message.connect(self.show_message)
+            self.player.options_changed.connect(self._player_save_timer.start)
+            self.player_bar = PlayerBar(self.player, self)
+            self.player_bar.playlist_requested.connect(lambda: self.cmd_playlist(None))
+            self.player_bar.close_requested.connect(lambda: self.ex_play("off"))
+            self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.player_bar)
+            self.playlist_view = PlaylistView(self.player)
+            self.playlist_view.back.connect(self._leave_playlist)
+            self.playlist_view.close_requested.connect(self.close_playlist)
+            self.playlist_view.goto.connect(self._playlist_goto)
+            self.playlist_view.command_line.connect(lambda: self.show_cmdline(":"))
+        return self.player
+
+    def _play_targets(self) -> tuple[list[str], int] | None:
+        """What gm plays: (tracks, the one to start with), or None."""
+        pane = self.pane
+        tagged = pane.selected_entries()
+        entry = pane.current_entry()
+        if tagged:
+            return music.collect([e.path for e in tagged]), 0
+        if pane.results:  # the list's audio files, from the cursor's on
+            tracks = [e.path for e in pane.model.entries if not e.is_dir and music.is_audio(e.path)]
+            start = tracks.index(entry.path) if entry and entry.path in tracks else 0
+            return tracks, start
+        if entry is None or entry.is_parent:
+            return music.collect([pane.path]), 0
+        if music.is_audio(entry.path):  # its folder, from this file on
+            tracks = music.folder_tracks(os.path.dirname(entry.path))
+            return tracks, tracks.index(entry.path) if entry.path in tracks else 0
+        return music.collect([entry.path]), 0
+
+    def cmd_play(self, a):
+        """gm: play the tagged items, the folder or .m3u under the cursor, or the
+        audio file under the cursor with the rest of its folder."""
+        if self._local_only("The player") or self._read_only_archive("The player"):
+            return
+        found = self._play_targets()
+        tracks, start = found if found else ([], 0)
+        if not tracks:
+            self.show_message("No music here (mp3, flac, ogg, opus, m4a, wav… or an .m3u)")
+            return
+        self.leave_visual()
+        self.pane.clear_tags()
+        self._start_playing(tracks, start)
+
+    def _start_playing(self, tracks: list[str], start: int = 0) -> None:
+        player = self._player()
+        if player is None:
+            return
+        player.load(tracks, start)
+        self.player_bar.show()
+        self.show_message(f"Playing {len(tracks)} track(s)   (gM = pause, ]m / [m = next / previous, "
+                          "Ctrl-w m = the playlist, :play off = stop)")
+
+    def _read_only_archive(self, what: str) -> bool:
+        if self.pane.archive:
+            self.show_message(f"{what}: unpack the files first (Alt-F9)")
+            return True
+        return False
+
+    def _with_player(self) -> "object | None":
+        """The player if something is loaded, else a hint and None."""
+        if self.player is None or not self.player.tracks:
+            self.show_message("Nothing is playing: gm plays the folder or the files under the cursor")
+            return None
+        return self.player
+
+    def cmd_play_pause(self, a):
+        """gM: pause / resume."""
+        if player := self._with_player():
+            player.toggle()
+            self.player_bar.show()
+
+    def cmd_play_next(self, a):
+        """]m: the next track (3]m = three on)."""
+        if player := self._with_player():
+            player.step(a.n())
+
+    def cmd_play_prev(self, a):
+        """[m: the start of this track, or the previous one."""
+        if player := self._with_player():
+            if a.n() > 1:
+                player.step(-a.n())
+            else:
+                player.previous()
+
+    def cmd_play_stop(self, a):
+        if self.player is not None:
+            self.player.stop()
+
+    def cmd_playlist(self, a):
+        """Ctrl-w m: the playlist in the other pane (or back into it); again from it = close."""
+        if self._with_player() is None:
+            return
+        view = self.playlist_view
+        for pane in self.panes:
+            if pane.playlist is view:
+                if pane.shows_playlist:
+                    if view.hasFocus() or view.list.hasFocus():
+                        self.close_playlist()
+                    else:
+                        view.setFocus()
+                    return
+                pane.close_playlist()  # covered by the quick view or a terminal: move it here
+        target = self.other
+        if target.shows_terminal:
+            self.show_message("The other pane is a terminal   (:vterm off closes it)")
+            return
+        self.show_both_panes()
+        if self.quickview:
+            self.quickview = False
+            for p in self.panes:
+                p.show_preview(False)
+        target.show_playlist(view)
+        view.setFocus()
+
+    def close_playlist(self) -> None:
+        for pane in self.panes:
+            if pane.playlist is not None:
+                had_focus = pane.playlist.list.hasFocus()
+                pane.close_playlist()
+                if had_focus:
+                    self.pane.view.setFocus()
+
+    def _leave_playlist(self) -> None:
+        self.pane.view.setFocus()
+        self.update_status()
+
+    def _playlist_goto(self, path: str) -> None:
+        self._leave_playlist()
+        self.goto_path(path)
+
+    def _save_player(self) -> None:
+        if self.player is not None:
+            self.save_settings({"player": self.player.options()})
+
+    def ex_play(self, arg):
+        """:play [PATH | pause | next [N] | prev | stop | off | list | shuffle [on|off] |
+        repeat [all|one|off] | volume N | speed RATE | seek [+|-]SECONDS | save NAME]"""
+        word, _, rest = arg.strip().partition(" ")
+        rest = rest.strip()
+        if not word:
+            self.cmd_play(Action("play", None))
+            return
+        if word not in ("pause", "next", "prev", "previous", "stop", "off", "list", "shuffle",
+                        "repeat", "volume", "seek", "speed", "save"):
+            path = self._arg_path(arg.strip())
+            tracks = music.collect([path]) if os.path.exists(path) else []
+            if not tracks:
+                self.show_message(f"No music in {path}")
+            else:
+                self._start_playing(tracks)
+            return
+        if word == "off":
+            if self.player is not None:
+                self.player.clear()
+                self.close_playlist()
+                self.player_bar.hide()
+            return
+        settings = word in ("shuffle", "repeat", "volume", "speed")  # these work before playing too
+        player = self._player() if settings else self._with_player()
+        if player is None:
+            return
+        if word == "pause":
+            player.toggle()
+        elif word == "next":
+            player.step(int(rest) if rest.isdigit() else 1)
+        elif word in ("prev", "previous"):
+            player.previous()
+        elif word == "stop":
+            player.stop()
+        elif word == "list":
+            self.cmd_playlist(None)
+        elif word == "shuffle":
+            player.set_shuffle(rest == "on" if rest in ("on", "off") else not player.shuffle)
+            self.show_message(f"Shuffle {'on' if player.shuffle else 'off'}")
+        elif word == "repeat":
+            if rest:
+                player.set_repeat(rest)
+            else:
+                player.cycle_repeat()
+            self.show_message(f"Repeat {player.repeat}")
+        elif word == "volume":
+            m = re.fullmatch(r"([+-]?)(\d+)", rest)
+            if not m:
+                self.show_message(f"Volume {player.volume}   (:play volume 0-100, +10, -10)")
+                return
+            n = int(m.group(2))
+            player.set_volume(player.volume + n if m.group(1) == "+" else
+                              player.volume - n if m.group(1) == "-" else n)
+            self.show_message(f"Volume {player.volume}")
+        elif word == "speed":
+            if rest in ("+", "-"):
+                player.faster(1 if rest == "+" else -1)
+            elif rest:
+                rate = music.parse_speed(rest, player.speed)
+                if rate is None:
+                    self.show_message("Usage: :play speed 1.5, 150%, +0.25, -0.25, + or - (0.25-4)")
+                    return
+                player.set_speed(rate)
+            self.show_message(f"Speed {music.format_speed(player.speed)}")
+        elif word == "seek":
+            m = re.fullmatch(r"([+-]?)(\d+(?:\.\d+)?)", rest)
+            if not m:
+                self.show_message("Usage: :play seek 90, +10 or -10 (seconds)")
+                return
+            ms = int(float(m.group(2)) * 1000)
+            player.seek(player.position + ms if m.group(1) == "+" else
+                        player.position - ms if m.group(1) == "-" else ms)
+        elif word == "save":
+            if self._local_only("Saving a playlist") or self._read_only(self.pane, into=True):
+                return
+            if not rest:
+                self.show_message("Usage: :play save NAME   (writes NAME.m3u8 here)")
+                return
+            name = rest if music.is_playlist(rest) else rest + ".m3u8"
+            path = os.path.join(self.pane.path, name)
+            try:
+                music.write_m3u(path, player.tracks)
+            except OSError as e:
+                self.show_message(f"Could not save the playlist: {e}")
+                return
+            self.pane.cd(self.pane.path, select=os.path.basename(path), record=False)
+            self.show_message(f"{len(player.tracks)} track(s) saved in {name}")
 
     # Share
 
@@ -2662,6 +3132,9 @@ class MainWindow(QMainWindow):
         ]
         if is_dir:
             items.append(("Add up folder size\tgs", "dir_size", not ro))
+        if entry and (is_dir or music.is_audio(entry.path) or music.is_playlist(entry.path)) \
+                and not ro and not self.pane.remote:
+            items.append(("Play\tgm", "play", True))
         return items + [None, ("Terminal here\tS", "shell", True)]
 
     def _own_menu(self, background: bool) -> QMenu:
@@ -2988,17 +3461,65 @@ class MainWindow(QMainWindow):
     def ex_redo(self, arg): self._undo_redo("redo", 1)
 
     def ex_undolist(self, arg):
-        lines = [f"undo {i}: {what}" for i, (what, _) in enumerate(reversed(self.undo_stack), 1)]
-        lines += [f"redo {i}: {what}" for i, (what, _) in enumerate(reversed(self.redo_stack), 1)]
+        def when(t: float) -> str:
+            if not t:
+                return ""
+            day = datetime.fromtimestamp(t)
+            return day.strftime("   (%H:%M)" if day.date() == datetime.now().date() else "   (%Y-%m-%d %H:%M)")
+        lines = [f"undo {i}: {what}{when(t)}" for i, (what, _, t) in enumerate(reversed(self.undo_stack), 1)]
+        lines += [f"redo {i}: {what}{when(t)}" for i, (what, _, t) in enumerate(reversed(self.redo_stack), 1)]
         if lines:
             QMessageBox.information(self, "Undo list", "\n".join(lines))
         else:
             self.show_message("Nothing to undo or redo")
 
+    def ex_trash(self, arg):
+        """:trash [WORDS]: what is in the system trash, to put back or delete for good."""
+        found = trash.items()
+        if not found:
+            self.show_message("The trash is empty")
+            return
+        here = self.pane.path
+        dialog = TrashDialog(found, arg, here, self)
+        if not dialog.exec():
+            return
+        chosen = dialog.chosen
+        if dialog.action == "purge":
+            self.start_job("purge", [i.path for i in chosen])
+            return
+        if dialog.action == "restore_here":
+            if self._local_only("Restoring from the trash") or self._read_only(into=True):
+                return
+            pairs, taken = [], set()
+            for item in chosen:  # never over an existing file, nor two items onto one name
+                stem, ext = (item.name, "") if item.is_dir else os.path.splitext(item.name)
+                dest, n = os.path.join(here, item.name), 0
+                while os.path.lexists(dest) or dest in taken:
+                    n += 1
+                    dest = os.path.join(here, f"{stem} ({n}){ext}")
+                taken.add(dest)
+                pairs.append((item.path, dest))
+        else:
+            if unknown := [i for i in chosen if not i.original]:
+                self.show_message(f"The trash doesn't say where {unknown[0].name} was: "
+                                  "Shift+Enter in :trash restores into the pane's folder")
+                return
+            pairs = [(i.path, i.original) for i in chosen]
+        job = self.start_job("restore", pairs)
+        if len(pairs) == 1:
+            job.finished.connect(lambda *_, dest=pairs[0][1]: self._show_restored(dest))
+
+    def _show_restored(self, path: str) -> None:
+        if os.path.lexists(path) and not self.pane.remote:
+            self.pane.cd(os.path.dirname(path), select=os.path.basename(path))
+
     # Macros
 
     def cmd_record(self, a):
         reg = a.arg or ""
+        if reg in (":", "/", "?"):  # q: / q/: the command-line window
+            self.history_window(":" if reg == ":" else "/")
+            return
         if not (reg.isalnum() and reg.isascii()):
             self.show_message("Record into a letter or digit: qa … q")
             return
@@ -3140,11 +3661,16 @@ class MainWindow(QMainWindow):
 
     # Command line
 
-    def cmd_command(self, a): self.show_cmdline(":", "")
+    def cmd_command(self, a):
+        """: in visual mode starts with the range '<,'> and 3: with .,.+2, as in vim."""
+        if self.engine.mode == VISUAL:
+            self.show_cmdline(":", "'<,'>")
+        else:
+            self.show_cmdline(":", f".,.+{a.count - 1}" if a.count and a.count > 1 else "")
 
-    def cmd_help(self, a):
+    def cmd_help(self, a, topic: str = ""):
         from .helpview import HelpDialog
-        HelpDialog(HELP, self).exec()
+        HelpDialog(HELP, self, topic).exec()
 
     def show_cmdline(self, prompt: str, text: str) -> None:
         self.whichkey.hide()
@@ -3271,6 +3797,56 @@ class MainWindow(QMainWindow):
             self.execute(text)
         self.update_status()
 
+    def history_window(self, prompt: str) -> None:
+        """q: / q/: the history in a list, newest at the bottom. j / k move, Enter runs
+        the line, e (or i) puts it on the command line to edit first, Esc / q closes."""
+        items = self.history[prompt]
+        if not items:
+            self.show_message("No history yet")
+            return
+        box = QDialog(self)
+        box.setWindowTitle("Command history" if prompt == ":" else "Search history")
+        view = QListWidget()
+        view.setFont(getattr(self, "text_font", view.font()))
+        view.addItems([prompt + item for item in items])
+        view.setCurrentRow(len(items) - 1)
+        chosen: list[tuple[str, bool]] = []
+
+        def key_press(e: QKeyEvent, base=view.keyPressEvent):
+            text, row = e.text(), view.currentRow()
+            if e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) or text in ("e", "i"):
+                chosen.append((items[row], text not in ("e", "i")))
+                box.accept()
+            elif text in ("j", "k"):
+                view.setCurrentRow(max(0, min(len(items) - 1, row + (1 if text == "j" else -1))))
+            elif text == "G":
+                view.setCurrentRow(len(items) - 1)
+            elif text == "g":
+                view.setCurrentRow(0)
+            elif text == "q":
+                box.reject()
+            else:
+                base(e)
+
+        view.keyPressEvent = key_press
+        view.itemDoubleClicked.connect(lambda _: (chosen.append((items[view.currentRow()], True)), box.accept()))
+        QVBoxLayout(box).addWidget(view)
+        fit_window(box, 800, 400)
+        box.exec()
+        self.pane.view.setFocus()
+        if not chosen:
+            return
+        text, run = chosen[0]
+        if not run:
+            self.show_cmdline(prompt, text)
+        elif prompt == ":":
+            self.last_ex = text
+            self.execute(text)
+        else:
+            self.show_cmdline("/", text)
+            self.search_origin = self.pane.row
+            self.on_cmdline_enter()
+
     def history_step(self, step: int) -> None:
         """Up / Down on the command line: older / newer entries starting with what was typed."""
         prompt = self.prompt_label.text()
@@ -3294,19 +3870,37 @@ class MainWindow(QMainWindow):
         self.cmdline.setText(text)
         self._completing = False
 
+    def register_text(self, name: str) -> str:
+        """Register x as text for Ctrl-r x on the command line: its paths, quoted
+        if needed; ':' is the last command, '/' the last search."""
+        if name == ":":
+            return self.last_ex
+        if name == "/":
+            return self.last_search or ""
+        reg = self._register_name(name)
+        held = clipboard.get_files() if reg == "+" else self.registers.get(reg.lower())
+        quote = subprocess.list2cmdline if WINDOWS else shlex.join
+        return quote(held[1]) if held else ""
+
     def cmdline_insert(self, kind: str) -> None:
         entry = self.pane.current_entry()
-        if kind == "folder":
+        if kind.startswith("reg:"):
+            self.cmdline.insert(self.register_text(kind[4:]))
+        elif kind == "folder":
             self.cmdline.insert(self.pane.path)
         elif entry and not entry.is_parent:
             self.cmdline.insert(entry.name if kind == "name" else entry.path)
 
     def command_names(self) -> set[str]:
         """Every : command: the ex_ methods and the config's own commands."""
-        return {m[3:] for m in dir(type(self)) if m.startswith("ex_")} | set(self.settings.get("commands") or {})
+        return ({m[3:] for m in dir(type(self)) if m.startswith("ex_")}
+                | set(self.settings.get("commands") or {}) | set(self.user_commands))
 
     def execute(self, line: str, depth: int = 0) -> None:
         line = line.strip().lstrip(":")
+        if (m := RANGE.match(line)) and (m.group(2) or not line.isdigit()):
+            self.range_command(m.group(1), m.group(2), line[m.end():].strip(), depth)
+            return
         if line in ("&", "&&"):  # repeat the last :s
             self.repeat_substitute()
             return
@@ -3337,18 +3931,73 @@ class MainWindow(QMainWindow):
             self.show_message(f"Ambiguous: :{cmd} could be " + ", ".join(":" + n for n in could_be[:8])
                               if could_be else f"Not a command: {cmd}")
             return
-        user = self.settings.get("commands") or {}
+        user = {**(self.settings.get("commands") or {}), **self.user_commands}
         if name in user and not hasattr(self, f"ex_{name}"):
             if depth < 10:
                 self.execute(f"{user[name]} {arg}", depth + 1)
             return
         self.bang = cmd.endswith("!")
+        self._typed_command = name  # :nmap and :map share a method
         try:
             getattr(self, f"ex_{name}")(arg)
         except OSError as e:
             self.show_message(f"{name}: {e.strerror or e}")
         finally:
             self.bang = False
+
+    def range_address(self, text: str) -> int:
+        """A row from a vim address: N (line N), . (the cursor), $ (the last), 'a (mark
+        a, if it is in this folder), '< / '> (the visual range), each with +N / -N."""
+        m = re.match(r"(\d+|\.|\$|'.)?(.*)", text)
+        base, offsets = m.group(1), m.group(2)
+        pane = self.pane
+        if base is None or base == ".":
+            row = pane.row
+        elif base == "$":
+            row = len(pane.model.entries) - 1
+        elif base.isdigit():
+            row = int(base) - 1
+        elif base in ("'<", "'>"):
+            ends = ((self.visual_anchor, pane.row) if self.engine.mode == VISUAL
+                    else self.last_visual or (pane.row, pane.row))
+            row = (min if base == "'<" else max)(ends)
+        else:
+            folder, name = self.marks.get(base[1], ("", ""))
+            row = pane.model.row_of(name) if folder == pane.path else -1
+            if row < 0:
+                raise ValueError(f"Mark not in this folder: {base[1]}")
+        for sign, n in re.findall(r"([+-])(\d*)", offsets):
+            row += int(n or 1) * (1 if sign == "+" else -1)
+        return row
+
+    def range_command(self, first: str, second: str | None, cmd: str, depth: int) -> None:
+        """:'<,'>CMD, :%CMD, :.,.+4CMD, :3,8CMD: tag the rows of the range, then run
+        CMD on them (without CMD the rows stay tagged)."""
+        try:
+            if first == "%":
+                lo, hi = 0, len(self.pane.model.entries) - 1
+            else:
+                lo, hi = sorted((self.range_address(first), self.range_address(second or first)))
+        except ValueError as e:
+            self.show_message(str(e))
+            return
+        entries = self.pane.model.entries
+        if second is None and first != "%" and not cmd:  # :$, :'a, :.+3 go there
+            self.pane.set_cursor(max(0, min(lo, len(entries) - 1)))
+            return
+        rows = [r for r in range(max(lo, 0), min(hi, len(entries) - 1) + 1) if not entries[r].is_parent]
+        if self.engine.mode == VISUAL:  # the range replaces the visual selection
+            self.last_visual = (self.visual_anchor, self.pane.row)
+            self.engine.mode = NORMAL
+        if not rows:
+            self.show_message("The range has no items")
+            return
+        self.pane.tag_rows(rows)
+        if cmd:
+            self.execute(cmd, depth)
+        else:
+            self.show_message(f"Tagged {len(rows)} item(s)")
+        self.update_status()
 
     def global_command(self, name: str, delimiter: str, rest: str, depth: int = 0) -> None:
         """:g/pattern/cmd tags the items whose names match (:g! and :v the others), then
@@ -3383,12 +4032,27 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def fill_shell(line: str, ctx: dict) -> str:
-        """%d %o %f %s in a shell command line, quoted, from a bar_context() dict (%% = %)."""
+        """%d %o %f %s in a shell command line, quoted, from a bar_context() dict (%% = %).
+        A % on its own is vim's: the file's name, with modifiers :p (full path), :h (its
+        folder), :t (the name), :r (without the extension) and :e (the extension)."""
         quote = subprocess.list2cmdline if sys.platform == "win32" else shlex.join
         values = {"d": quote([ctx["cwd"]]), "o": quote([ctx["other"]]),
                   "f": quote([ctx["current"]]) if ctx["current"] else "",
                   "s": quote(ctx["selected"]), "%": "%"}
-        return re.sub(r"%([dofs%])", lambda m: values[m.group(1)], line)
+
+        def vim_name(mods: str) -> str:
+            current = ctx["current"]
+            if not current:
+                return ""
+            name = os.path.basename(current)  # relative to the folder the command runs in
+            for mod in mods[1::2]:
+                full = os.path.join(os.path.dirname(current), name)
+                name = {"p": full, "h": os.path.dirname(full), "t": os.path.basename(name),
+                        "r": os.path.splitext(name)[0], "e": os.path.splitext(name)[1][1:]}[mod]
+            return quote([name])
+
+        return re.sub(r"%([dofs%])|%((?::[phtre])*)",
+                      lambda m: values[m.group(1)] if m.group(1) else vim_name(m.group(2)), line)
 
     def shell_command(self, line: str) -> None:
         """Run a shell command line in this folder, with %d %o %f %s filled in (%% = %)."""
@@ -3416,7 +4080,9 @@ class MainWindow(QMainWindow):
     def ex_qa(self, arg): self.close()
     ex_qall = ex_quitall = ex_wqa = ex_xa = ex_qa
 
-    def ex_help(self, arg): self.cmd_help(None)
+    def ex_help(self, arg):
+        """:help [TOPIC]: the key reference, filtered to the lines that mention TOPIC."""
+        self.cmd_help(None, arg)
 
     def ex_cd(self, arg):
         if arg == "-":
@@ -3479,8 +4145,16 @@ class MainWindow(QMainWindow):
     def _record(self, what: str, records: list[tuple]) -> None:
         """A new change: it can be undone, and (as in vim) ends what could be redone."""
         if records:
-            self.undo_stack = self.undo_stack[-49:] + [(what, records)]
+            self.undo_stack = self.undo_stack[-49:] + [(what, records, time.time())]
             self.redo_stack.clear()
+            self._save_undo()
+
+    def _save_undo(self) -> None:
+        if self.settings.get("persistent_undo", True):
+            try:
+                config.save_undo(self.undo_stack, self.redo_stack)
+            except OSError as e:
+                self.show_message(f"Could not save the undo history: {e.strerror or e}")
 
     @staticmethod
     def _exists(path: str) -> bool:
@@ -3609,6 +4283,9 @@ class MainWindow(QMainWindow):
                     tab["results"].paths = [old.get(os.path.normcase(p), p) for p in tab["results"].paths]
             pane.refresh_results()
         self.shelf.renamed(pairs)
+        if self.player is not None:
+            for old, new in pairs:
+                self.player.rename(old, new)
 
     # zoxide
 
@@ -4007,18 +4684,183 @@ class MainWindow(QMainWindow):
     def ex_put(self, arg): self.run_action("paste", None, None, arg[:1] or None)
 
     def ex_normal(self, arg):
-        """:normal KEYS runs keys in the pane as if typed (<C-d>, <CR> style for special keys)."""
+        """:normal KEYS runs keys in the pane as if typed (<C-d>, <CR> style for special
+        keys), through the maps; :normal! uses the built-in keys only."""
         if not arg:
             self.show_message("Usage: :normal KEYS, e.g. :normal 3jyy")
             return
-        self.run_keys(arg)
+        self.run_keys(arg, remap=not self.bang)
 
-    def run_keys(self, keys: str) -> None:
-        self.engine.reset()
-        for key in re.findall(r"<[^<>\s]+>|.", keys):
-            if action := self.engine.feed(key):
+    def run_keys(self, keys: str, remap: bool = True) -> None:
+        """Keys as if typed: through the maps, or (remap=False) the built-in and config
+        keys only. After :, /, ? or = they go to the command line until <CR>; a
+        prompt left open waits for the user."""
+        if self._key_depth >= 20:
+            self.show_message("Maps nested too deeply (a map that runs itself?)")
+            return
+        engine = self.engine
+        saved = engine.bindings, engine.arg_bindings
+        if not remap:
+            engine.bindings, engine.arg_bindings = self.base_bindings
+        self._key_depth += 1
+        try:
+            engine.reset()
+            for key in split_keys(keys, self.leader):
+                if self.cmdline.isVisible():
+                    if key == "<CR>":
+                        self.on_cmdline_enter()
+                    elif key in ("<Esc>", "<C-c>"):
+                        self.on_cmdline_cancel()
+                    elif key == "<BS>":
+                        self.cmdline.backspace()
+                    elif key == "<Space>":
+                        self.cmdline.insert(" ")
+                    elif len(key) == 1:
+                        self.cmdline.insert(key)
+                    continue
+                self.feed_key(key)
+            if action := engine.flush():
                 self.run_action(action.name, action.count, action.arg, action.register)
-        self.engine.reset()
+            engine.reset()
+        finally:
+            self._key_depth -= 1
+            if not remap:
+                engine.bindings, engine.arg_bindings = saved
+
+    def cmd_keys(self, a): self.run_keys((str(a.count) if a.count else "") + (a.arg or ""), remap=False)
+    def cmd_remap(self, a): self.run_keys((str(a.count) if a.count else "") + (a.arg or ""))
+
+    # :map
+
+    def _map_modes(self) -> tuple[str, ...]:
+        """The modes of the running :map, :nmap, :vnoremap… (x = v: there is one visual mode)."""
+        name = self._typed_command
+        if name[:1] in "nvx" and name[1:] in ("map", "noremap", "unmap"):
+            return (NORMAL,) if name[0] == "n" else (VISUAL,)
+        return (NORMAL, VISUAL)
+
+    def _map_command(self, arg: str, remap: bool) -> None:
+        modes = self._map_modes()
+        lhs, _, rhs = arg.strip().partition(" ")
+        while lhs.lower() in ("<silent>", "<nowait>", "<unique>", "<buffer>"):  # vim's flags, ignored
+            lhs, _, rhs = rhs.strip().partition(" ")
+        rhs = rhs.strip()
+        if not lhs or not rhs:
+            self.list_maps(modes, "".join(split_keys(lhs, self.leader)) if lhs else "")
+            return
+        keys = "".join(split_keys(lhs, self.leader))
+        rhs = rhs.replace("<leader>", self.leader).replace("<Leader>", self.leader)
+        if rhs.lower() == "<nop>":
+            value = ""
+        elif m := re.fullmatch(r":([^<]*)<cr>", rhs, re.IGNORECASE):  # a : command: run it directly
+            value = "ex:" + m.group(1)
+        else:
+            value = ("remap:" if remap else "keys:") + rhs
+        for mode in modes:
+            self.maps[mode][keys] = value
+        self.apply_keys()
+
+    def ex_map(self, arg): self._map_command(arg, True)
+    ex_nmap = ex_vmap = ex_xmap = ex_map
+
+    def ex_noremap(self, arg): self._map_command(arg, False)
+    ex_nnoremap = ex_vnoremap = ex_xnoremap = ex_noremap
+
+    def ex_unmap(self, arg):
+        modes = self._map_modes()
+        keys = "".join(split_keys(arg.strip(), self.leader))
+        found = [mode for mode in modes if self.maps[mode].pop(keys, None) is not None]
+        if not found:
+            self.show_message(f"No such mapping: {arg.strip()}")
+        self.apply_keys()
+    ex_nunmap = ex_vunmap = ex_xunmap = ex_unmap
+
+    def ex_mapclear(self, arg):
+        for maps in self.maps.values():
+            maps.clear()
+        self.apply_keys()
+        self.show_message("Maps cleared")
+
+    def list_maps(self, modes: tuple[str, ...], start: str = "") -> None:
+        rows = []
+        for mode in modes:
+            for keys, value in sorted(self.maps[mode].items()):
+                if keys.startswith(start):
+                    kind, _, what = value.partition(":")
+                    shown = {"ex": f":{what}<CR>", "keys": f"* {what}", "remap": what}.get(kind, "<Nop>")
+                    rows.append(f"{mode[0].lower()}  {keys:<12} {shown}")
+        if not rows:
+            self.show_message("No mapping found")
+        elif len(rows) == 1:
+            self.show_message(rows[0])
+        else:
+            self.show_text("Maps", "\n".join(rows))
+
+    def ex_command(self, arg):
+        """:command NAME REPLACEMENT adds a : command for this session (like the config's
+        "commands"; arguments are added after it); :command lists them, :delcommand NAME
+        removes one. Vim's -nargs and other flags are skipped."""
+        words = arg.split()
+        while words and words[0].startswith("-"):
+            words.pop(0)
+        if not words:
+            user = {**(self.settings.get("commands") or {}), **self.user_commands}
+            if user:
+                self.show_text("Commands", "\n".join(f":{k:<14} {v}" for k, v in sorted(user.items())))
+            else:
+                self.show_message("No user commands")
+            return
+        name, replacement = words[0], " ".join(words[1:])
+        if not replacement:
+            self.show_message(f":{name} = {self.user_commands.get(name, '(not defined)')}")
+        elif hasattr(self, f"ex_{name}"):
+            self.show_message(f":{name} is a built-in command")
+        else:
+            self.user_commands[name] = replacement
+
+    def ex_delcommand(self, arg):
+        if self.user_commands.pop(arg.strip(), None) is None:
+            self.show_message(f"No such user command: {arg.strip()}")
+
+    def ex_let(self, arg):
+        """:let mapleader = ","   (the only variable there is)"""
+        m = re.fullmatch(r"(?:g:)?mapleader\s*=\s*(['\"])(.*)\1", arg.strip())
+        if not m:
+            self.show_message('Only :let mapleader = "X" is supported')
+            return
+        value = m.group(2).replace("\\<", "<") if m.group(1) == '"' else m.group(2)  # "\<Space>"
+        if m.group(1) == '"':
+            value = value.replace("\\\\", "\\")  # "\\" is one backslash
+        keys = split_keys(value)
+        if len(keys) != 1:
+            self.show_message("mapleader must be one key")
+            return
+        self.leader = "<Space>" if keys[0] == " " else keys[0]
+
+    def rc_path(self) -> str:
+        """The vimcommanderrc run at start: the config's "vimrc", relative to the config file's folder."""
+        name = os.path.expanduser(str(self.settings.get("vimrc") or "vimcommanderrc"))
+        return os.path.join(os.path.dirname(config.config_path()), name)
+
+    def ex_source(self, arg):
+        """:source FILE runs its lines as : commands ("-comments and empty lines skipped;
+        a line starting with \\ continues the one before, as in vim)."""
+        path = self._arg_path(arg) if arg else self.rc_path()
+        try:
+            with open(path, encoding="utf-8-sig") as f:
+                text = f.read()
+        except OSError as e:
+            self.show_message(f"Can't read {path}: {e.strerror or e}")
+            return
+        lines: list[str] = []
+        for raw in text.splitlines():
+            line = raw.strip()
+            if line.startswith("\\") and lines:
+                lines[-1] += line[1:]
+            elif line and not line.startswith('"'):
+                lines.append(line)
+        for line in lines:
+            self.execute(line, depth=1)
 
     def ex_pwd(self, arg): self.show_message(self.pane.path)
 
@@ -4116,14 +4958,7 @@ class MainWindow(QMainWindow):
         """Apply self.settings: keys, pane options, launch bar, marks."""
         s = self.settings
         try:
-            bindings, arg_bindings = user_bindings(s.get("keys") or {})
-            bad = []
-            for table in bindings.values():
-                for key, value in list(table.items()):
-                    if not hasattr(self, "cmd_" + value.partition(":")[0]):
-                        bad.append(f"{key}: {value}")
-                        del table[key]
-            self.engine.bindings, self.engine.arg_bindings = bindings, arg_bindings
+            bad = self.apply_keys()
             try:
                 self.engine.langmap = parse_langmap(str(s.get("langmap") or ""))
             except ValueError as e:
@@ -4194,6 +5029,27 @@ class MainWindow(QMainWindow):
         elif font_warning:
             self.show_message(font_warning)
 
+    def apply_keys(self) -> list[str]:
+        """The engine's bindings: the defaults, the config's "keys", then the :maps.
+        Returns the config's bindings to unknown actions (left out)."""
+        bindings, arg_bindings = user_bindings(self.settings.get("keys") or {})
+        bad = []
+        for table in bindings.values():
+            for key, value in list(table.items()):
+                if not hasattr(self, "cmd_" + value.partition(":")[0]):
+                    bad.append(f"{key}: {value}")
+                    del table[key]
+        self.base_bindings = ({m: dict(t) for m, t in bindings.items()}, arg_bindings)
+        for mode, maps in self.maps.items():
+            for keys, value in maps.items():
+                bindings[mode].pop(keys, None)
+                if value:
+                    bindings[mode][keys] = value
+                    arg_bindings[mode] = {k: v for k, v in arg_bindings[mode].items() if k != keys}
+        self.engine.bindings, self.engine.arg_bindings = bindings, arg_bindings
+        self.engine.reset()
+        return bad
+
     @staticmethod
     def _pane_ratio(settings: dict) -> float:
         try:
@@ -4234,6 +5090,7 @@ class MainWindow(QMainWindow):
             "bar_visible": not self.bar.isHidden(),
             "marks": self.marks,
             "macros": self.macros,
+            "registers": {k: list(v) for k, v in self.registers.items() if k.isalnum()},
             "panes": [pane.path for pane in self.panes],
             "tabs": [pane.tab_paths() for pane in self.panes],
             "tab_index": [pane.tab for pane in self.panes],
@@ -4263,6 +5120,8 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self.save_settings()
         self.terminal.stop()
+        if self.player is not None:
+            self.player.release()
         for pane in self.panes:
             pane.close_terminal()
         remote.REMOTE.close_all()

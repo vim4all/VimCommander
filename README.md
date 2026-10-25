@@ -15,8 +15,8 @@ VimCommander combines the layout of Total Commander with the keyboard of [vifm](
 - [Key reference](#key-reference)
 - [Commands](#commands)
 - **[Finding files and folders](#finding-files-and-folders)**: [Find files](#find-files) · [Result lists](#result-lists) · [Search in files](#search-in-files) · [zoxide](#zoxide) · [Activity calendar](#activity-calendar) · [Which-key and command palette](#which-key-and-command-palette)
-- **[Working with files](#working-with-files)**: [Bulk rename](#bulk-rename) · [Global commands](#global-commands) · [Shelf](#shelf) · [Zip files](#zip-files) · [PDF tools](#pdf-tools) · [Folder rules](#folder-rules) · [Freeing space](#freeing-space) · [Jobs and the copy queue](#jobs-and-the-copy-queue) · [Drag and drop](#drag-and-drop) · [Right-click menu](#right-click-menu) · [Launch bar](#launch-bar)
-- **[Viewing files](#viewing-files)**: [Quick view](#quick-view) · [CSV plot](#csv-plot) · [Firmware memory map](#firmware-memory-map) · [Folder graph](#folder-graph)
+- **[Working with files](#working-with-files)**: [Bulk rename](#bulk-rename) · [Global commands](#global-commands) · [Shelf](#shelf) · [Zip files](#zip-files) · [PDF tools](#pdf-tools) · [Folder rules](#folder-rules) · [Freeing space](#freeing-space) · [Trash and undo](#trash-and-undo) · [Jobs and the copy queue](#jobs-and-the-copy-queue) · [Drag and drop](#drag-and-drop) · [Right-click menu](#right-click-menu) · [Launch bar](#launch-bar)
+- **[Viewing files](#viewing-files)**: [Quick view](#quick-view) · [CSV plot](#csv-plot) · [Firmware memory map](#firmware-memory-map) · [Folder graph](#folder-graph) · [Music player](#music-player)
 - **[Panes and layout](#panes-and-layout)**: [Thumbnail grid](#thumbnail-grid) · [Miller columns](#miller-columns) · [Linked panes](#linked-panes) · [Sessions](#sessions)
 - **[Comparing folders and files](#comparing-folders-and-files)**: [Compare and synchronize](#compare-and-synchronize) · [Side-by-side diff](#side-by-side-diff) · [Git](#git)
 - **[Terminal](#terminal)**: [Terminal pane](#terminal-pane)
@@ -33,7 +33,7 @@ VimCommander combines the layout of Total Commander with the keyboard of [vifm](
 **Vim at the core**
 
 - **Modal keys**: normal and visual mode, counts (`5j`, `3yy`, `12G`), sequences (`gg`, `dd`, `Ctrl-w l`), keys that take a character (`ma`, `'a`, `fx`), and a `langmap` so they work in a Ukrainian or Russian layout too.
-- **Vim grammar**: operators with motions (`yj`, `d3j`, `yG`), `.` and `@:` to repeat, registers (`"ayy`, `"+p` for the system clipboard), macros (`qa…q`, `@a`), `u` / `Ctrl-r`, marks, `Ctrl-o` / `Ctrl-i`, `''`.
+- **Vim grammar**: operators with motions (`yj`, `d3j`, `yG`, `gUj`), `.` and `@:` to repeat, registers (`"ayy`, `"+p` for the system clipboard), macros (`qa…q`, `@a`), `u` / `Ctrl-r`, marks, `Ctrl-o` / `Ctrl-i`, `''`, ranges (`:'<,'>`, `:%s/a/b/`), `:map` / `:noremap` with `<leader>` and a vimcommanderrc, `q:`, `Ctrl-w` window keys.
 - **Vim commands**: `:set` options with relative line numbers, `/` search with smartcase and highlights, `:s/old/new/g` on names, `:g/pattern/cmd`, a quickfix-style [result list](#result-lists) with `]q` / `[q` and `:cdo`, command-line history and editing keys.
 
 **Files**
@@ -54,6 +54,7 @@ VimCommander combines the layout of Total Commander with the keyboard of [vifm](
 - [Quick view](#quick-view) (`Ctrl-q`) of text, images, PDFs, Markdown notes, CSV tables or [plots](#csv-plot), Jupyter notebooks, STM32CubeMX projects, [firmware memory maps](#firmware-memory-map) and hex.
 - [Folder graphs](#folder-graph): tree, sunburst and treemap of disk usage, a timeline, file types, Obsidian-style note links and code imports.
 - [Thumbnail grid](#thumbnail-grid), [Miller columns](#miller-columns), [git](#git) status colors, [free space](#freeing-space) finders (`:reclaim`, `:dupes`).
+- A [music player](#music-player) (`gm`) for a folder or the tagged files: one slim row at the bottom, the playlist in a pane on demand.
 
 **Comparing**
 
@@ -103,7 +104,7 @@ The screenshots show a made-up home folder; `tools/screenshots.py` makes it and 
 
 **Windows, ready to run**: download `VimCommander-*-windows-x64.zip` from the [latest release](https://github.com/vim4all/VimCommander/releases/latest), unzip it anywhere and start `VimCommander.exe`. No Python needed. The settings are kept in `config.json` next to the exe (portable). Windows SmartScreen may warn the first time, because the exe isn't signed: *More info* → *Run anyway*.
 
-**From source** you need **Python 3.10 or newer**. The dependencies are [PySide6](https://doc.qt.io/qtforpython-6/) (Qt for Python, about 200–300 MB installed), [paramiko](https://www.paramiko.org/) for [SSH folders](#ssh-folders) and [segno](https://segno.readthedocs.io/) for the QR code of [`:share`](#share-with-a-phone).
+**From source** you need **Python 3.10 or newer**. The dependencies are [PySide6](https://doc.qt.io/qtforpython-6/) (Qt for Python, about 200–300 MB installed), [paramiko](https://www.paramiko.org/) for [SSH folders](#ssh-folders) and [segno](https://segno.readthedocs.io/) for the QR code of [`:share`](#share-with-a-phone). The [music player](#music-player) uses QtMultimedia from `PySide6-Addons` (in requirements.txt; without it everything else still works).
 
 **Linux / macOS**
 
@@ -185,6 +186,13 @@ Keys work in the file panes. Unless noted, a count before a key repeats it or ap
 | `Ctrl-^`, `:cd -` | the previous folder of this pane (vim's alternate file) |
 | `Tab`, `Ctrl-w w` | switch to the other pane |
 | `Ctrl-w h` / `Ctrl-w l` | go to the left / right pane |
+| `Ctrl-w o` | only this pane, like vim's `:only`; again (or `Ctrl-w =`, or going to the other pane) shows both |
+| `Ctrl-w x`, `Ctrl-w r` | swap the panes: they trade folders, tabs and history, and the cursor goes along |
+| `Ctrl-w c`, `Ctrl-w q` | close this pane, so only the other one shows (`:close`) |
+| `Ctrl-w v`, `Ctrl-w s` | both panes, the other one in this folder, like vim's split (`:vsplit [PATH]`, `:split`) |
+| `Ctrl-w p` | the other pane (vim's previous window) |
+| `Ctrl-w =` / `Ctrl-w \|` | panes of equal width / this pane as wide as possible |
+| `Ctrl-w <` / `Ctrl-w >` | this pane narrower / wider by 5% (`3 Ctrl-w >` = 15%); the width is saved like a dragged divider |
 | `Ctrl-l` | reload both panes |
 | `Alt-F1` / `Alt-F2` | drive menu for the left / right pane (also: click the drive button left of the path) |
 | `Ctrl-t` | new tab with the same folder |
@@ -206,10 +214,13 @@ Keys work in the file panes. Unless noted, a count before a key repeats it or ap
 | `gr` | the [activity calendar](#activity-calendar) of this folder |
 | `Ctrl-Shift-p` | the [command palette](#which-key-and-command-palette): every action and command, by name |
 | `gG` | open the [graph](#folder-graph) of the folder under the cursor (or the current folder) in its own window |
-| `za` | show / hide hidden files |
+| `za` | show / hide hidden files; `zo` / `zm` show / hide them (as in vifm) |
 | `zi` | [thumbnail grid](#thumbnail-grid) / list for this pane |
 | ``Ctrl-` `` | show the [terminal](#terminal) and go to it; from the terminal, hide it |
 | `Ctrl-w t` | a [terminal pane](#terminal-pane): a real terminal in the other pane, in this folder (again: go into it) |
+| `gm` | [play music](#music-player): the tagged items, the folder or `.m3u` under the cursor, or the audio file under the cursor and the rest of its folder |
+| `gM` / `]m` / `[m` | pause / resume, next track, previous track (or the start of this one); the keyboard's media keys work too |
+| `Ctrl-w m` | the [playlist](#music-player) in the other pane (again: go into it; from it: close it) |
 | `g1` … `g9` | press launch bar button 1–9 |
 
 ### Selecting
@@ -223,8 +234,9 @@ Tagged items are highlighted. File operations act on the tagged items, or on the
 | `+` | tag by pattern (opens `:select *`) |
 | `v`, `V` | visual mode: move to extend the range |
 | `o` (in visual mode) | jump to the other end of the range |
+| `x` / `c`, `s` / `U`, `u`, `~` (in visual mode) | cut / rename / change the case of the range, like vim |
 | `gv` | reselect the last visual range |
-| `Esc` | leave visual mode and clear tags |
+| `Esc`, `Ctrl-c`, `Ctrl-[` | leave visual mode and clear tags |
 | click / `Ctrl`+click / `Shift`+click | move the cursor / tag or untag one item / tag a range |
 
 ### File operations
@@ -242,14 +254,19 @@ Tagged items are highlighted. File operations act on the tagged items, or on the
 | `Alt-F5` | pack the tagged items (or the cursor's) into a zip in the other pane: a dialog for the name, compression level, *move to archive* and *one archive per item*; `u` undoes it |
 | `gb` | branch view: every file below this folder in one result list (like Total Commander's Ctrl-B); `h` goes back |
 | `Alt-F9` | unpack the tagged zips (or the one under the cursor) into the other pane, optionally each into its own subfolder |
-| `Del`, `F8` | move to trash (asks first) |
-| `Shift-Del` | delete permanently (asks first; can't be undone) |
-| `u` / `Ctrl-r` | undo / redo the last copy, move, rename, new folder / file or move to trash; `3u` undoes three. A new change clears what can be redone |
+| `Del`, `F8` | move to trash (asks first); `:trash` puts items back |
+| `Shift-Del`, `DD` | delete permanently (asks first; can't be undone) |
+| `u` / `Ctrl-r` | undo / redo the last copy, move, rename, new folder / file or move to trash; `3u` undoes three. A new change clears what can be redone. The history is kept between runs ([trash and undo](#trash-and-undo)) |
 | `"x` before a command | use register `x`: `"ayy` yanks into `a`, `"Ayy` adds to it, `"ap` pastes it, `"a3dd` cuts 3 items into it. `"+` (or `"*`) is the system clipboard: `"+yy` / `"+dd` put files on it for Explorer, Finder or Nautilus to paste, `"+p` pastes files copied or cut there. See also `:set clipboard=unnamedplus` |
 | `qa` … `q` | record a macro into `a` (any letter or digit; `qA` adds to it). Every key is recorded, including what you type on the `:` line. The status bar shows `recording @a` |
 | `@a`, `@@`, `5@a` | play macro `a`, play the last macro again, play it 5 times |
 | `cw`, `F2` | rename |
 | `cW` | rename with only the name selected, so the extension stays |
+| `I` / `A` | rename with the cursor at the start / end of the name, like vim's insert keys |
+| `cc` / `C` | rename, typing a new name / a new name before the extension (`C` keeps `.jpg`) |
+| `gUU` / `guu` / `g~~` | the name in UPPER / lower / switched case; with a motion: `gUj`, `gu3j`, `g~G`; `U` / `u` / `~` in visual mode. `.` repeats, `u` undoes |
+| `Ctrl-a` / `Ctrl-x` | add / subtract 1 to the last number in the name of the tagged items or the one under the cursor, like vim (`5 Ctrl-a` adds 5): `img_0099.jpg` → `img_0100.jpg`, `v10` → `v9`. Leading zeros keep the width; it stops at 0. Works in visual mode, `.` repeats, `u` undoes |
+| `g Ctrl-a` / `g Ctrl-x` | the same, but the first item gets 1, the second 2, the third 3… (vim's `g Ctrl-a`): tag `shot_0.png` ×5 for `shot_1` … `shot_5` |
 | `F7` | new folder |
 | `F3` / `F4` | view / edit the file(s) with the configured viewer / editor |
 | `S` | open a terminal in the current folder |
@@ -259,8 +276,8 @@ Tagged items are highlighted. File operations act on the tagged items, or on the
 | `zs` | put the tagged items (or the cursor's) on the [shelf](#shelf); also in visual mode |
 | `zS` | show the shelf and go to it; again to hide it |
 | `gd` | [diff](#side-by-side-diff) two files side by side: the two tagged files, or the files under the cursors of both panes. If the other pane's cursor isn't on a file and this file is changed in [git](#git), it is compared with its last commit |
-| `gs` | add up the size of the folder(s) under the cursor or tagged; it's shown in the Size column |
-| `gS` | add up the sizes of all folders in this pane |
+| `gs`, `ga` | add up the size of the folder(s) under the cursor or tagged; it's shown in the Size column |
+| `gS`, `gA` | add up the sizes of all folders in this pane |
 | right-click, `Menu`, `Shift-F10` | context menu (see [Right-click menu](#right-click-menu)) |
 | `yf` | copy the full path(s) to the clipboard |
 | `yd` | copy the current folder's path to the clipboard |
@@ -275,6 +292,8 @@ As in vim:
 - **Commands can be shortened** to any start that is unique: `:bulk` = `:bulkrename`, `:pdfe` = `:pdfextract`. Vim's usual short forms win over other commands that start the same way: `:se` = `:set`, `:sh` = `:shell`, `:e` = `:edit`, `:d` = `:delete`, `:y` = `:yank`, `:pu` = `:put`, `:tabn` = `:tabnext`, `:cn` = `:cnext`. An ambiguous start (`:tab`) lists what it could be.
 - **`!` forces**: `:delete!` deletes instead of trashing, `:rename! NAME` replaces an existing NAME (the old one goes to the trash), `:pdfextract! … NAME` replaces NAME, `:sort!` reverses.
 - **`:messages`** shows what the status bar said lately, with times.
+- **Ranges** go before a command and tag those rows first: `:'<,'>CMD` (typing `:` in visual mode fills it in), `:%CMD` (every item), `:3,8CMD`, `:.,.+4CMD` (`5:` fills in `.,.+4`), `:'a,.CMD`, `:$-2,$CMD`. Rows are the line numbers (`:set nu`); `'a` is mark `a` if it's in this folder. Without a command the rows stay tagged; `:$` and `:'a` alone go there. Examples: `:%s/ /_/g`, `:'<,'>rename {n:2}{ext}`, `:.,+2d`.
+- **`q:`** (and `q/`) opens the history in a window: `j` / `k`, `Enter` runs the line, `e` puts it on the command line to edit first.
 
 Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 
@@ -283,7 +302,9 @@ Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 | `↑` / `↓`, `Ctrl-p` / `Ctrl-n` | older / newer history entries that start with what you've typed. `:` commands, searches and filters each have their own history (100 entries, kept between runs) |
 | `Ctrl-w` / `Ctrl-u` | delete the word / everything before the cursor |
 | `Ctrl-b` / `Ctrl-e` | go to the start / end of the line |
-| `Ctrl-r Ctrl-f` / `Ctrl-r Ctrl-p` / `Ctrl-r Ctrl-d` | insert the file name under the cursor / its full path / the current folder |
+| `Ctrl-r Ctrl-f` (or `Ctrl-r Ctrl-w`) / `Ctrl-r Ctrl-p` / `Ctrl-r Ctrl-d` | insert the file name under the cursor / its full path / the current folder |
+| `Ctrl-r x` | insert the paths in register `x`, quoted: `Ctrl-r "` the last yank, `Ctrl-r +` the clipboard's files; `Ctrl-r :` the last command, `Ctrl-r /` the last search |
+| `Esc`, `Ctrl-c`, `Ctrl-[` | cancel |
 
 ### Folders and files
 
@@ -297,8 +318,9 @@ Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 | `:filter [PATTERN]` | same as `=`; no pattern clears the filter |
 | `:sort name\|ext\|size\|time`, `:sort!` | sort this pane; `:sort! size` or `:sort -size` reverses |
 | `:delete`, `:d` / `:delete!` | move the tagged items (or the cursor's) to the trash / delete them for good, like `Del` / `Shift-Del` |
+| `:trash [WORDS]` | [what is in the trash](#trash-and-undo): put items back where they were (or into this folder), or delete them for good |
 | `:yank [x]`, `:y` / `:put [x]`, `:pu` | yank the tagged items (or the cursor's) / paste here; `x` = a register, as with `"xyy` and `"xp` |
-| `:normal KEYS`, `:norm` | run KEYS in the pane as if typed: `:normal 3jyy`, special keys as `<C-d>`, `<CR>` |
+| `:normal KEYS`, `:norm` | run KEYS in the pane as if typed, through your maps: `:normal 3jyy`, special keys as `<C-d>`, `<CR>`; `:` … `<CR>` types a command. `:normal!` ignores the maps |
 | `:pwd` | show this pane's folder |
 | `:select PATTERN` | tag items matching a shell pattern, e.g. `:select *.jpg` |
 | `:unselect PATTERN` | untag matching items |
@@ -362,6 +384,9 @@ Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 |---|---|
 | `:obsidian` | open the note (or folder) under the cursor in Obsidian |
 | `:shelf [add\|copy\|move\|zip [NAME]\|list\|clear]` | the [shelf](#shelf); no argument shows / hides it |
+| `:play [PATH]` | the [music player](#music-player): play the files under the cursor (same as `gm`), or a folder, file or `.m3u` |
+| `:play pause\|next [N]\|prev\|stop\|off\|list` | control it; `off` stops and hides the bar, `list` shows the playlist (`Ctrl-w m`) |
+| `:play shuffle [on\|off]`, `:play repeat [all\|one\|off]`, `:play volume N\|+N\|-N`, `:play speed RATE`, `:play seek S\|+S\|-S`, `:play save NAME` | shuffle, repeat, volume (0–100), speed (`1.5`, `150%`, `+0.25`, `-0.25`, `+` / `-` = the next step; 0.25–4), seek in seconds; `save` writes the playlist as `NAME.m3u8` here |
 | `:grid [on\|off\|SIZE]` | [thumbnail grid](#thumbnail-grid) for this pane (same as `zi`), or the thumbnail size in pixels |
 | `:jobs [pause\|resume\|cancel]` | show / hide the [jobs panel](#jobs-and-the-copy-queue), or pause, resume or cancel every job |
 | `:hex [on\|off]` | quick view shows every file as a hex dump (binary files always do); no argument toggles |
@@ -385,7 +410,7 @@ Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 |---|---|
 | `:terminal [COMMAND]`, `:term` | show the [terminal](#terminal); with a command, run it there |
 | `:vterm [SHELL]`, `:vterm off` | a [terminal pane](#terminal-pane) in the other pane: `wsl`, `wsl:NAME`, `pwsh`, `cmd`, `bash` or a command line; `off` closes it |
-| `:!COMMAND` | run a shell command in the current folder; `%d` `%o` `%f` `%s` are filled in (quoted), `%%` is a literal `%` |
+| `:!COMMAND` | run a shell command in the current folder; `%d` `%o` `%f` `%s` are filled in (quoted), `%%` is a literal `%`. A `%` on its own is vim's: the file's name, `%:p` its full path, `%:h` its folder, `%:t` the name, `%:r` without the extension, `%:e` the extension (`:!tar xf % -C %:r`) |
 | `:shell` | open a terminal in the current folder |
 
 ### Tabs, sessions, marks, registers and undo
@@ -397,7 +422,7 @@ Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 | `:tabnext [N]`, `:tabn` / `:tabprevious`, `:tabp` | the next tab (or tab N) / the previous one, like `gt` / `gT` |
 | `:tabfirst` / `:tablast` / `:tabonly` | the first / last tab / close the pane's other tabs |
 | `:undo`, `:redo` | same as `u` / `Ctrl-r` |
-| `:undolist` | list what can be undone and redone |
+| `:undolist` | list what can be undone and redone, with when each change was made |
 | `:reg`, `:registers`, `:di`, `:display` | list the registers, the clipboard's files and the macros |
 | `:tabs` | list both panes' tabs |
 | `:tabmove [N]` | move the tab after tab N (`0` = first, nothing = last, `+1` / `-1` = one step) |
@@ -414,7 +439,13 @@ Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 | `:set OPTION` | vim options, see below: `:set rnu`, `:set nonu`, `:set nu!` (toggle), `:set ic?` (show), several at once; `:set` alone lists them. Changes are saved |
 | `:noh`, `:nohlsearch` | clear the search highlight until the next search |
 | `:config` | open the config file in the editor; changes apply when you save it |
-| `:help` | show the key reference |
+| `:help [TOPIC]`, `:h` | show the key reference; with a topic, only the lines that mention it (`:h Ctrl-w`) |
+| `:map`, `:nmap`, `:vmap`, `:noremap`, `:nnoremap`, `:vnoremap`, … | [map keys to keys](#maps-and-vimcommanderrc); alone, list the maps |
+| `:unmap`, `:nunmap`, `:vunmap` / `:mapclear` | remove a map / all of them |
+| `:let mapleader = ","` | the key `<leader>` stands for in maps made after it (default `\`) |
+| `:source [FILE]`, `:so` | run the `:` commands in FILE; no FILE = the `vimcommanderrc` |
+| `:command NAME REPLACEMENT`, `:command` / `:delcommand NAME` | a `:` command for this session (arguments go after the replacement), list them / remove one |
+| `:only` / `:close` / `:vsplit [PATH]` | only this pane / only the other / both (like `Ctrl-w o` / `c` / `v`) |
 
 ### Options for :set
 
@@ -619,6 +650,21 @@ Tag what you don't need and press `Del` (it goes to the trash, so `u` brings it 
 
 **`:dupes`** finds files with the same content below the current folder: same size, then the same first 64 KB, then the same full hash. The result list shows each set together (`[set 3: 4 copies of 12.5 M]`), the sets that waste the most space first. `:dupes 1M` skips files under 1 MB. In the list, **`:dupes tag`** tags every copy except the newest of each set (`:dupes tag old`: except the oldest), ready for `Del`.
 
+### Trash and undo
+
+`Del` moves items to the system trash, and `u` brings them back, as it undoes copies, moves, renames and new files. **The undo history is kept between runs** (the last 50 changes, in `undo.json` next to the config), so you can still undo yesterday's cleanup after a restart; `:undolist` shows each change with its time. Set `"persistent_undo": false` to forget it on quit.
+
+**`:trash`** shows everything in the trash, the most recently trashed first, with where each item was, when it was trashed and its size; type to filter by name or folder (`:trash report` starts filtered).
+
+| Key | Action |
+|---|---|
+| `Enter` | put the selected items back where they were (an item whose place is taken again is skipped with a message) |
+| `Shift-Enter` | put them into the active pane's folder instead (`name (1).ext` when the name is taken) |
+| `Shift-Del` | delete them from the trash for good (asks first) |
+| `↑` / `↓`, `Ctrl-j` / `Ctrl-k`, `Shift-↑` / `Shift-↓`, `Ctrl-A` | move, extend the selection, select all |
+
+Restoring is a change like any other, so `u` sends the items back to the trash. It reads the Windows Recycle Bin of every drive and the freedesktop.org trash on Linux (the home trash and the `.Trash-1000` folders of other drives). On macOS the trash doesn't record where an item came from, so only `Shift-Enter` works there.
+
 ### Jobs and the copy queue
 
 Copies, moves, `:synchronize` / `:mirror` and `:zip` run one at a time: one started while another is running waits in a queue, so two big copies to the same disk don't slow each other down. The first job shows the usual progress window, with *Pause* and *Background* (hide the window, keep going in the panel). Queued jobs show in the **jobs panel**, which opens by itself when something is queued and closes when the queue is empty; `:jobs` shows or hides it any time.
@@ -689,7 +735,7 @@ Programs start in the active pane's folder. On the first run the bar is filled w
 | text file | its first 256 KB |
 | image | the picture, scaled to fit |
 | PDF | the first pages, rendered |
-| Markdown note | rendered; Obsidian `[[links]]` and embedded images work, click a link to go to that note |
+| Markdown note | rendered; Obsidian `[[links]]` and embedded images work, click a link to go to that note. Also understands [md2doc](https://github.com/vim4all/DCR_MD_to_PDF) documents: front matter as a title block, colored callouts (`> **WARNING** …`, `> [!note]`), tables with shaded cells (`<!--bg:best-->`), footnotes, task lists, simple `$math$`, and mermaid / matplotlib blocks as figures: the PNGs md2doc made next to the note, or mermaid drawn by [mermaid-cli](https://github.com/mermaid-js/mermaid-cli) (`mmdc` on the PATH) into the cache |
 | CSV / TSV | a table with the row and column count; hover a column header for min, max, mean or distinct values. `zp` shows a [plot](#csv-plot) instead |
 | Jupyter notebook (`.ipynb`) | its cells, outputs and plots: code shaded, outputs indented below |
 | STM32CubeMX project (`.ioc`) | the chip, clocks, a pin table with labels and modes, the peripheral settings you changed, DMA and interrupts |
@@ -765,6 +811,31 @@ Imports of libraries outside the folder are left out, as are `build`, `dist`, `t
 | go to a note or source file / open it | click it to put the cursor on it; double-click to open it |
 
 Up to 400 nodes are shown (300 notes); scanning runs in the background and stops when you move on. Folders inside zip files show the usual summary instead. The options are saved in the config's `graph` section; `:graph off` goes back to the plain folder summary in quick view.
+
+### Music player
+
+`gm` plays music from the pane: the tagged items, else the folder or `.m3u` playlist under the cursor (with its subfolders, so `CD1`, `CD2` follow in order), else, on an audio file, that file and the rest of its folder; on `..`, the current folder. In a [result list](#result-lists) it plays the list's audio files. Tracks play in name order, `2` before `10`. It plays mp3, FLAC, Ogg, Opus, m4a / AAC, WAV, WMA, AIFF and more.
+
+The player is one slim row at the bottom of the window, shown when music starts: previous / play-pause / next, the track (click it for the playlist), a seek bar (click to jump), the time, volume, the speed (`1×`: click to choose 0.5× to 3×, or turn the mouse wheel over it; voices keep their pitch), shuffle `⇄`, repeat `↻` (the list, `↻1` this track, `→` stop at the end), the playlist `≡`, and `✕` to stop and hide it. It never takes the keyboard from the panes. `gM` pauses and resumes, `]m` / `[m` go to the next / previous track (`[m` first goes back to the start of the track), and the keyboard's media keys do the same while the window is active.
+
+`Ctrl-w m` shows the **playlist in the other pane**, like the [terminal pane](#terminal-pane). In it:
+
+| Keys | Action |
+|---|---|
+| `j` `k` `gg` `G` `Ctrl-d` `Ctrl-u` | move |
+| `Enter` or `l` | play this track |
+| `Space` | pause / resume |
+| `n` / `N` | next / previous track |
+| `←` / `→` | seek 5 seconds back / on |
+| `+` / `-` | louder / quieter |
+| `}` / `{` / `0` | faster / slower / normal speed |
+| `s` / `r` | shuffle on / off, next repeat mode |
+| `d`, `x` or `Del` | take the track off the list (the file stays) |
+| `o` | show the file in the file pane |
+| `Esc`, `h`, `Tab` or `Ctrl-w h/l/w` | back to the files (the playlist stays; `Tab` goes back into it) |
+| `q` | close the playlist (the music goes on) |
+
+Drop files or folders on the playlist to add them. `:play save NAME` writes it as `NAME.m3u8` in the pane's folder, with relative paths, so it works when the folder moves; `gm` on it plays it again. Volume, speed, shuffle and repeat are saved in the config's `player`.
 
 ## Panes and layout
 
@@ -953,12 +1024,14 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
   "rules": [],
   "thumbnail_size": 128,
   "share": {"port": 0, "minutes": 15, "upload": true},
+  "player": {"volume": 70, "shuffle": false, "repeat": "all", "speed": 1.0},
   "number": false, "relativenumber": false,
   "ignorecase": true, "smartcase": true, "hlsearch": true, "wrapscan": true,
   "clipboard": "",
   "sort": "name",
   "date_format": "%Y-%m-%d %H:%M",
   "confirm_trash": true,
+  "persistent_undo": true,
   "queue_jobs": true,
   "restore_panes": true,
   "history_limit": 100,
@@ -985,6 +1058,8 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
 | `colors` | colors of the cursor, tagged items, search matches and more; see [Colors](#colors) |
 | `graph` | the [folder graph](#folder-graph): `enabled` (in quick view), `depth` (1–3), `size_by` (`"size"` or `"count"`), `mode` (`"tree"`, `"sunburst"`, `"treemap"`, `"timeline"`, `"types"`, `"notes"` or `"code"`), `max_nodes` (50–2000) |
 | `which_key_delay` | milliseconds after a prefix key before the [which-key](#which-key-and-command-palette) panel shows; `0` = never |
+| `timeoutlen` | like vim's: milliseconds a key waits when a map starts with it (a map `,x` next to the built-in `,`), before it runs on its own |
+| `vimrc` | the [vimcommanderrc](#maps-and-vimcommanderrc) file run at start, relative to the config file's folder |
 | `vterm` | the [terminal pane](#terminal-pane): `shell` (`""` = `programs.shell`, else the system's; or `"wsl"`, `"wsl:Ubuntu"`, `"pwsh"`, `"cmd"`, `"bash"`, a command line) and `follow` (the shell and the file pane `cd` along with each other) |
 | `langmap` | like vim's `langmap`: keys typed in another keyboard layout act as the keys at the same place on a US keyboard, so you don't have to switch layouts for `j`, `gg`, `dd`, `:` or `Ctrl-d`. `"cyrillic"` (default) covers Ukrainian and Russian (`о` = `j`, `пп` = `gg`, `Ж` = `:`); `""` turns it off. Vim's format works too: comma-separated `FROM;TO` lists or pairs, e.g. `"cyrillic,õ[ü]"`. Only non-ASCII characters can be mapped, so the US layout is never affected. It applies to normal and visual mode keys (counts, marks and registers included), not to the `:` / `/` line, and not to the character after `f` / `F`, so `fс` still finds a name starting with Cyrillic `с` |
 | `monospace` | monospace font for the file lists, path headers, command line, status bar and quick view. `family` `""` picks the first installed of Cascadia Mono, Consolas, JetBrains Mono, SF Mono, Menlo, DejaVu Sans Mono, …; `size` `0` = same size as the window font; `"enabled": false` uses the window font instead |
@@ -992,6 +1067,7 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
 | `natural_sort` | numbers in names sort by value, `run2` before `run10` (`:set natural`) |
 | `git` | [git](#git) status colors and branch (`:set git`) |
 | `columns` | [Miller columns](#miller-columns) (`:set columns`) |
+| `player` | the [music player](#music-player): `volume` (0–100), `shuffle`, `repeat` (`"all"`, `"one"` or `"off"`), `speed` (0.25–4, `1.0` = normal); the player saves them when you change them |
 | `rules` | the [folder rules](#folder-rules) for `:rules` |
 | `thumbnail_size` | size of the [thumbnails](#thumbnail-grid) in pixels, 48–320 (Ctrl+wheel in the grid changes it) |
 | `share` | [sharing with a phone](#share-with-a-phone): `port` (`0` = any free port), `minutes` until it stops, `upload` (may the phone send files) |
@@ -999,6 +1075,7 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
 | `sort` | `name`, `ext`, `size` or `time`; prefix `-` to reverse, e.g. `"-time"` |
 | `date_format` | format of the *Modified* column, in Python [`strftime`](https://docs.python.org/3/library/datetime.html#format-codes) codes |
 | `confirm_trash` | ask before moving to trash |
+| `persistent_undo` | keep what `u` / `Ctrl-r` can undo and redo between runs, in `undo.json` next to the config; `false` = only while the app runs |
 | `queue_jobs` | run copies, moves, syncs and zips one after another ([copy queue](#jobs-and-the-copy-queue)); `false` = all at once |
 | `restore_panes` | reopen the last folders and tabs; `false` = current folder and home |
 | `pane_ratio` | the left pane's share of the width, `0.1`–`0.9` (default `0.5`). Dragging the divider between the panes saves it, and it is kept when the window is resized |
@@ -1014,7 +1091,7 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
 | `commands` | your own `:` commands, see below |
 | `keys` | your own key maps, see below |
 
-The app also saves its own state in the same file: `bar`, `bar_labels`, `bar_visible` (launch bar), `marks`, `panes` (last folders), `tabs` / `tab_index` (each pane's open tabs), `history` (command-line history), `macros` (recorded macros), `shelf` / `shelf_visible` (the [shelf](#shelf)'s files and whether it is shown), `sessions` (saved [sessions](#sessions)), `pane_ratio` and `grid` (which pane shows thumbnails). You can edit these too.
+The app also saves its own state in the same file: `bar`, `bar_labels`, `bar_visible` (launch bar), `marks`, `panes` (last folders), `tabs` / `tab_index` (each pane's open tabs), `history` (command-line history), `macros` (recorded macros), `registers` (the named registers' files), `shelf` / `shelf_visible` (the [shelf](#shelf)'s files and whether it is shown), `sessions` (saved [sessions](#sessions)), `pane_ratio` and `grid` (which pane shows thumbnails). You can edit these too.
 
 ### Colors
 
@@ -1104,6 +1181,27 @@ Now `:code` opens VS Code in the current folder and `:dl` jumps to Downloads.
 
 Your maps replace the default keys with the same name. A key that is the start of a longer default key, such as `g`, hides the longer key (`gg`). Unknown action names are reported in the status bar and ignored.
 
+### Maps and vimcommanderrc
+
+Vim's own way works too: `:map` commands, typed or in a `vimcommanderrc` file next to the config file (the config's `vimrc` names another), which runs at every start like a vimrc. Lines starting with `"` are comments; a line starting with `\` continues the one before.
+
+```vim
+" vimcommanderrc
+let mapleader = ","
+nnoremap <leader>d :cd ~/Downloads<CR>
+nnoremap <leader>r :rename<Space>
+nmap <leader>u gUU
+vnoremap <C-c> y
+set rnu
+command Dl cd ~/Downloads
+```
+
+- `:nmap` / `:nnoremap` work in normal mode, `:vmap` / `:vnoremap` (or `:xmap` / `:xnoremap`) in visual mode, `:map` / `:noremap` in both. The left side is keys, the right side is the keys it types, in vim's notation: `<CR>`, `<Esc>`, `<Space>`, `<C-d>`, `<S-F5>`, `<lt>`, `<Bar>`, `<leader>`, `<Nop>` (unbind).
+- `noremap` types the built-in keys (and the config's `keys`); `map` goes through your other maps too, as in vim.
+- Keys after `:`, `/` or `=` go to that line; `<CR>` runs it, and without `<CR>` the line stays open for you to finish (`:rename<Space>`). A count before the map goes in front of its keys.
+- A map that starts like a built-in key (`,x` and `,`) waits `timeoutlen` milliseconds for the next key, then runs the shorter one.
+- Maps last for the session; put them in the vimcommanderrc to keep them. `:map` lists them (`*` = noremap).
+
 ## Building a standalone app
 
 `build.py` uses [PyInstaller](https://pyinstaller.org/) to make an app that starts without a terminal window, in `release/VimCommander/`:
@@ -1130,17 +1228,9 @@ Ideas for later, roughly in order. None of these exist yet.
 
 **More vim**
 
-- **Mappings from the command line**: `:nmap`, `:nnoremap`, `:vmap`, `:unmap` and `:command`, saved to the config's `keys` and `commands`. Optionally a vim-style `vimcommanderrc` file with `set` and `nnoremap` lines, loaded with `:source`.
-- **Window commands**: `Ctrl-w o` / `:only` for one pane and `Ctrl-w v` / `:vsplit` for two; `Ctrl-w x` to swap the panes; `Ctrl-w =`, `Ctrl-w <` and `Ctrl-w >` for their widths; `Ctrl-w s` to stack them one above the other.
-- **Vim's `%` in `:!` commands**: `%` = the file under the cursor, `%:p` its full path, `%:h` its folder, `%:t` its name, `%:r` without the extension, `%:e` the extension, alongside the existing `%f` / `%d` placeholders.
-- **`'<,'>` in visual mode**: `:` from visual mode fills in `'<,'>` like vim, e.g. `:'<,'>rename {n}{ext}`. (Today `:` already acts on the visual selection; this is about familiarity.)
-- **Help and history windows**: `:help TOPIC` in a searchable window instead of the message box; `q:` to browse the command history and run an entry with `Enter`.
-- **Registers that last**: keep named registers and the undo history between runs, like vim's viminfo.
+- **Stacked panes**: `Ctrl-w s` / `Ctrl-w K` to put the panes one above the other (today `Ctrl-w s` works like `Ctrl-w v`).
 
 **vifm habits**
-
-- Aliases for vifm users: `ga` / `gA` for folder sizes, `DD` for permanent delete, `zo` / `zm` to show / hide hidden files.
-- `Ctrl-a` / `Ctrl-x` to increase / decrease a number in the file name under the cursor.
 
 **File manager**
 
@@ -1153,7 +1243,7 @@ Things that work differently from what you might expect (planned features are in
 
 - Zip files are read-only apart from deleting items, and only zip-based formats (`.zip`, `.jar`, `.whl`) open as folders.
 - Permanent deletes (`Shift-Del`) and files replaced by *Overwrite* can't be undone.
-- Undo history and named registers last only while the app runs; macros and command history are saved. So do result lists: a tab that showed one reopens its folder.
+- Result lists aren't kept between runs: a tab that showed one reopens its folder. The undo history is kept, but changes made by other programs since can make an old undo fail (it never overwrites: an item that exists again is skipped with a message).
 - Git status needs the `git` program; very big repositories may color a moment after the list appears.
 - The terminal panel is not a full terminal emulator: full-screen programs (vim, htop) need a real terminal (`S`).
 - SSH folders don't refresh by themselves (`Ctrl-l`), and changes on a server can't be undone. Servers that offer only SCP, not SFTP, aren't supported. FTP folders have no shell, and copying between two folders on the same FTP server goes through this computer.
@@ -1163,6 +1253,7 @@ Things that work differently from what you might expect (planned features are in
 - On Linux and macOS, files yanked to the clipboard (`"+yy`) are gone from it once VimCommander quits; on Windows they stay.
 - `y` / `d` don't combine with `n`, `N`, `f`, `;` and `,`, because `yn`, `yf` and so on already have their own meanings (copy name, copy path).
 - On Windows with WSL, the Windows exe and WSL use separate zoxide databases.
+- The music player's media keys work only while VimCommander is the active window, and it doesn't read tags (artist, album): tracks show by file name. Under WSL it plays through WSLg's PulseAudio.
 
 ## License
 

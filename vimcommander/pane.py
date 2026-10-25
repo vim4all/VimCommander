@@ -920,6 +920,7 @@ class Pane(QWidget):
         self.grid_mode = False
         self.preview = QuickView()
         self.term = None  # a termview.TermView while the pane shows a terminal (:vterm)
+        self.playlist = None  # the player's PlaylistView while the pane shows it (Ctrl-w m)
         self.stack = QStackedWidget()
         self.stack.addWidget(self.view)
         self.stack.addWidget(self.grid)
@@ -1325,6 +1326,26 @@ class Pane(QWidget):
         index = state.get("index", 0)
         self.switch_tab(max(0, min(index if isinstance(index, int) else 0, len(self.tabs) - 1)))
 
+    def tab_state(self) -> tuple[list[dict], int, list[tuple[str, str]]]:
+        """Every tab with its history, and the tab labels, for Ctrl-w x."""
+        self._save_tab()
+        labels = [(self.tabbar.tabText(i), self.tabbar.tabToolTip(i)) for i in range(self.tabbar.count())]
+        return self.tabs, self.tab, labels
+
+    def set_tab_state(self, tabs: list[dict], index: int, labels: list[tuple[str, str]]) -> None:
+        self.tabbar.blockSignals(True)
+        while self.tabbar.count() > len(tabs):
+            self.tabbar.removeTab(self.tabbar.count() - 1)
+        while self.tabbar.count() < len(tabs):
+            self.tabbar.addTab("")
+        for i, (text, tip) in enumerate(labels):
+            self.tabbar.setTabText(i, text)
+            self.tabbar.setTabToolTip(i, tip)
+        self.tabbar.blockSignals(False)
+        self.tabbar.setVisible(len(tabs) > 1)
+        self.tabs = tabs
+        self._load_tab(index)
+
     # Quick view
 
     @property
@@ -1335,7 +1356,7 @@ class Pane(QWidget):
     def set_grid(self, on: bool) -> None:
         had_focus = self.view.hasFocus() or self.grid.hasFocus()
         self.grid_mode = on
-        if self.stack.currentWidget() not in (self.preview, self.term):
+        if self.stack.currentWidget() not in (self.preview, self.term, self.playlist):
             self.stack.setCurrentWidget(self.list_view)
         # pane.view.setFocus() (used everywhere) reaches the grid while it is shown
         self.view.setFocusProxy(self.grid if on else None)
@@ -1358,7 +1379,7 @@ class Pane(QWidget):
         return top, bottom if bottom >= 0 else len(self.model.entries) - 1
 
     def show_preview(self, on: bool) -> None:
-        self.stack.setCurrentWidget(self.preview if on else (self.term or self.list_view))
+        self.stack.setCurrentWidget(self.preview if on else (self.term or self.playlist or self.list_view))
         if not on:
             self.preview.clear()
 
@@ -1381,8 +1402,37 @@ class Pane(QWidget):
         term.stop()
         self.stack.removeWidget(term)
         term.deleteLater()
-        self.header_box.show()
-        self.stack.setCurrentWidget(self.list_view)
+        if self.playlist is None:
+            self.header_box.show()
+        self.stack.setCurrentWidget(self.playlist or self.list_view)
+
+    # Music player playlist (Ctrl-w m)
+
+    @property
+    def shows_playlist(self) -> bool:
+        return self.playlist is not None and self.stack.currentWidget() is self.playlist
+
+    @property
+    def covered(self) -> bool:
+        """A terminal or the playlist stands in for the file list."""
+        return self.shows_terminal or self.shows_playlist
+
+    def show_playlist(self, view) -> None:
+        """Show the playlist in place of the files (the view is kept, not owned)."""
+        self.playlist = view
+        self.stack.addWidget(view)
+        self.stack.setCurrentWidget(view)
+        self.header_box.hide()
+
+    def close_playlist(self) -> None:
+        view, self.playlist = self.playlist, None
+        if view is None:
+            return
+        self.stack.removeWidget(view)
+        view.setParent(None)
+        if self.term is None:
+            self.header_box.show()
+        self.stack.setCurrentWidget(self.term or self.list_view)
 
     def _history_step(self, from_stack: list[str], to_stack: list[str]) -> bool:
         while from_stack:

@@ -9,16 +9,17 @@ Jupyter notebooks show their cells and outputs, STM32CubeMX projects their pins 
 import html
 import os
 import queue
+import shutil
 import threading
 from datetime import datetime
 
-from PySide6.QtCore import QByteArray, QObject, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QByteArray, QObject, QSize, QStandardPaths, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (QDesktopServices, QFontDatabase, QImage, QImageReader, QPalette, QPixmap, QTextCursor,
                            QTextDocument, QTextFormat)
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QLabel, QPlainTextEdit, QScrollArea, QSizePolicy,
                                QStackedWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
-from . import archive, cubemx, graphview, ltspice, mdnotes, memmap, notebook, pdftools, remote, tabular
+from . import archive, cubemx, graphview, ltspice, mdnotes, mdrender, memmap, notebook, pdftools, remote, tabular
 from .memmapview import MemMapView
 from .plotview import PlotView
 
@@ -262,10 +263,14 @@ class PdfView(QScrollArea):
 
 
 class MarkdownView(QTextBrowser):
-    """A rendered note. Wikilinks, relative links and images resolve like in
-    Obsidian; a click on a note emits open_requested, web links open outside."""
+    """A rendered note (mdrender: md2doc callouts, shaded tables, figures).
+    Wikilinks, relative links and images resolve like in Obsidian; a click on a
+    note emits open_requested, web links open outside. Mermaid blocks show the
+    PNG md2doc made next to the note, else one mermaid-cli (mmdc) renders on a
+    thread into the cache; the note is shown again when it is done."""
 
     open_requested = Signal(str)  # a local file path
+    diagrams_done = Signal(int)  # token
 
     def __init__(self):
         super().__init__()
@@ -275,17 +280,73 @@ class MarkdownView(QTextBrowser):
         self.document().setDocumentMargin(10)
         self.note: str | None = None  # local path, None for remote or zip notes
         self.images: list[bytes] = []  # a notebook's images, nbimage:N in its text
+        self.text = ""  # the shown note's Markdown, to show it again
+        self.token = 0  # the current note; a diagram thread for an older one is ignored
+        self.failed: dict[str, str] = {}  # mermaid code -> mmdc's error
         self.anchorClicked.connect(self._clicked)
+        self.diagrams_done.connect(self._diagrams_done)
 
     def show_note(self, text: str, note: str | None) -> None:
-        self.note, self.images = note, []
+        same = note is not None and note == self.note
+        scroll = self.verticalScrollBar().value() if same else 0
+        self.note, self.images, self.text = note, [], text
+        self.token += 1
         base = QUrl.fromLocalFile(os.path.dirname(note) + "/") if note else QUrl()
         self.document().setBaseUrl(base)
-        self.document().setMarkdown(mdnotes.prepare(text))
-        self.verticalScrollBar().setValue(0)
+        pal = self.palette()
+        dark = pal.color(QPalette.ColorRole.Base).lightness() < 128
+        st = mdrender.style(dark, pal.color(QPalette.ColorRole.Base).name(), pal.color(QPalette.ColorRole.Text).name())
+        page = mdrender.render(text, st, self._diagram, max(200, self.viewport().width() - 30))
+        self.setHtml(page.html)
+        self.verticalScrollBar().setValue(scroll)
+        todo = [code for kind, _, code in page.missing if kind == "mermaid" and code not in self.failed]
+        if todo and (mmdc := shutil.which("mmdc")):
+            threading.Thread(target=self._render_diagrams, args=(todo, mmdc, self.token), daemon=True).start()
+
+    @staticmethod
+    def mermaid_cache() -> str:
+        return os.path.join(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.CacheLocation),
+                            "mermaid")
+
+    def _diagram(self, kind: str, ident: str, code: str) -> tuple[str | None, str]:
+        """The image for a mermaid / matplotlib block, and a note for it."""
+        folder = os.path.dirname(self.note) if self.note else None
+        if kind == "mermaid":
+            cached = os.path.join(self.mermaid_cache(), mdrender.mermaid_key(code) + ".png")
+            if os.path.isfile(cached):
+                return cached, ""
+            made, current = mdrender.md2doc_image(kind, ident, code, folder) if folder else (None, False)
+            if made:
+                return made, ""
+            if code in self.failed:
+                return None, f"mermaid-cli failed: {self.failed[code]}"
+            return None, "rendering…" if shutil.which("mmdc") else "install mermaid-cli (mmdc) to see the diagram"
+        made, current = mdrender.md2doc_image(kind, ident, code, folder) if folder else (None, False)
+        if made:
+            return made, "" if current else "changed since md2doc made it"
+        return None, "run md2doc to see the plot"
+
+    def _render_diagrams(self, todo: list[str], mmdc: str, token: int) -> None:
+        cache = self.mermaid_cache()
+        for code in todo:
+            if token != self.token:
+                return
+            path, error = mdrender.render_mermaid(code, cache, mmdc)
+            if not path:
+                self.failed[code] = error
+        self.diagrams_done.emit(token)
+
+    def _diagrams_done(self, token: int) -> None:
+        if token == self.token:
+            self.show_note(self.text, self.note)
+
+    def clear(self) -> None:
+        self.token += 1
+        super().clear()
 
     def show_notebook(self, nb: notebook.Notebook, path: str | None) -> None:
         """A Jupyter notebook: code cells shaded, outputs indented below them."""
+        self.token += 1
         self.note, self.images = path, nb.images
         self.document().setBaseUrl(QUrl.fromLocalFile(os.path.dirname(path) + "/") if path else QUrl())
         self.document().setMarkdown(nb.markdown)
@@ -308,6 +369,7 @@ class MarkdownView(QTextBrowser):
         self.verticalScrollBar().setValue(0)
 
     def show_html(self, text: str) -> None:
+        self.token += 1
         self.note, self.images = None, []
         self.document().setBaseUrl(QUrl())
         self.setHtml(text)

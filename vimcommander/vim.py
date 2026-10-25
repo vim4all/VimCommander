@@ -5,12 +5,17 @@ strings: printable characters as-is ("j", "G", ":") and special keys in vim
 notation ("<CR>", "<Esc>", "<C-d>", "<F5>").
 
 A binding value is an action name, optionally with a fixed argument after a
-colon ("bar:3"). Bindings in the *_ARG_KEYS tables take the next typed key as
+colon ("bar:3"). :map / :noremap bind keys to other keys: "remap:<rhs>" and
+"keys:<rhs>". When one binding is the start of a longer one (a user map like
+",x" next to ","), the engine waits; flush() runs the shorter one after the
+'timeoutlen' delay, and a key that doesn't continue it runs it and is left in
+`leftover` to be fed again. Bindings in the *_ARG_KEYS tables take the next typed key as
 their argument, like vim's `ma` or `fx`.
 
 User key maps (from the settings file) are merged in with user_bindings().
 """
 
+import re
 from dataclasses import dataclass
 
 NORMAL = "NORMAL"
@@ -42,8 +47,9 @@ MOTION_ARG_KEYS = {
 # Operators: y / d followed by a motion act on the rows from the cursor to
 # where the motion lands, like vim's yj, d3j, yG, ygg. A count may go before
 # the operator, before the motion, or both (2d3j = 6 rows). n/N, ; and , are
-# left out because yn / yf already mean "yank name" / "yank path".
-OPERATORS = {"y": "yank", "d": "cut"}
+# left out because yn / yf already mean "yank name" / "yank path". gU / gu / g~
+# change the case of the names (gUU, gU3j, g~G).
+OPERATORS = {"y": "yank", "d": "cut", "gU": "upper", "gu": "lower", "g~": "toggle_case"}
 OPERATOR_MOTIONS = {k: v for k, v in MOTIONS.items()
                     if k not in ("n", "N", ";", ",", "zz", "zt", "zb", "<C-e>", "<C-y>")}
 
@@ -57,6 +63,13 @@ NORMAL_KEYS = {
     "<C-w>w": "switch_pane", "<C-w><C-w>": "switch_pane",
     "<C-w>h": "left_pane", "<C-w>l": "right_pane",
     "<C-w>t": "vterm",  # a terminal in the other pane
+    "<C-w>m": "playlist",  # the music player's playlist in the other pane
+    "<C-w>o": "only_pane", "<C-w><C-o>": "only_pane", "<C-w>x": "swap_panes", "<C-w><C-x>": "swap_panes",
+    "<C-w>=": "equal_panes", "<C-w>|": "maximize_pane",
+    "<C-w>>": "resize_pane:1", "<C-w><": "resize_pane:-1",  # 3 Ctrl-w > = 15% wider
+    "<C-w>p": "switch_pane", "<C-w><C-p>": "switch_pane", "<C-w>r": "swap_panes", "<C-w>R": "swap_panes",
+    "<C-w>c": "close_pane", "<C-w>q": "close_pane",  # only the other pane, like closing this window
+    "<C-w>s": "split_pane", "<C-w>v": "split_pane",  # both panes, the other one in this folder
     "<A-F1>": "drives:1", "<A-F2>": "drives:2",
     "<C-t>": "new_tab", "gt": "next_tab", "gT": "prev_tab", "gz": "zoxide_pick",
     "t": "tag", "<Space>": "tag", "T": "invert_tags", "+": "select_prompt",
@@ -68,12 +81,19 @@ NORMAL_KEYS = {
     "<Del>": "trash", "<F8>": "trash", "<S-Del>": "delete", "u": "undo", "<C-r>": "redo",
     "<C-^>": "alternate", "ZZ": "quit", "ZQ": "quit", "<C-g>": "info", "gx": "open_system",
     "cw": "rename", "<F2>": "rename", "cW": "rename_stem",
+    "I": "rename_at:start", "A": "rename_at:end", "cc": "rename_at:clear", "C": "rename_at:stem",
+    "gUU": "upper", "gUgU": "upper", "guu": "lower", "gugu": "lower", "g~~": "toggle_case", "g~g~": "toggle_case",
+    "<C-a>": "increment", "<C-x>": "decrement",  # the number in the name; g: 1, 2, 3... times
+    "g<C-a>": "increment:g", "g<C-x>": "decrement:g",
     "<F7>": "mkdir",
-    "za": "toggle_hidden",
+    "za": "toggle_hidden", "zo": "show_hidden:on", "zm": "show_hidden:off",
     "<C-q>": "quickview", "gs": "dir_size", "gS": "all_dir_sizes", "gG": "graph_window",
+    "ga": "dir_size", "gA": "all_dir_sizes", "DD": "delete",  # vifm's keys
     "<C-S-p>": "palette", "<C-p>": "files", "gr": "activity",
     "g/": "grep", "gf": "goto_file", "gd": "diff", "zs": "shelf_add", "zS": "shelf",
     "zi": "grid", "zp": "plot", "<C-`>": "terminal",
+    "gm": "play", "gM": "play_pause", "]m": "play_next", "[m": "play_prev",  # music
+    "<MediaPlay>": "play_pause", "<MediaNext>": "play_next", "<MediaPrev>": "play_prev", "<MediaStop>": "play_stop",
     "]q": "qf_next", "[q": "qf_prev", "&": "repeat_substitute",  # the next / previous item of the result list, in its folder
     "<Menu>": "context_menu", "<S-F10>": "context_menu",
     "<C-l>": "reload",
@@ -81,7 +101,7 @@ NORMAL_KEYS = {
     "=": "filter",
     ":": "command",
     "<F1>": "help",
-    "<Esc>": "escape",
+    "<Esc>": "escape", "<C-c>": "escape",
     **{f"g{i}": f"bar:{i}" for i in range(1, 10)},
 }
 NORMAL_KEYS.update({op + key: f"{name}_motion:{motion}"
@@ -104,9 +124,12 @@ VISUAL_KEYS = {
     "<F5>": "copy_other", "<F6>": "move_other", "<A-F5>": "pack", "<A-F9>": "unpack",
     "<Del>": "trash", "<F8>": "trash", "<S-Del>": "delete",
     "gs": "dir_size", "<Menu>": "context_menu", "<S-F10>": "context_menu",
-    "zs": "shelf_add", "gd": "diff",
+    "zs": "shelf_add", "gd": "diff", "gm": "play",
+    "<C-a>": "increment", "<C-x>": "decrement", "g<C-a>": "increment:g", "g<C-x>": "decrement:g",
+    "x": "cut", "c": "rename", "s": "rename",
+    "U": "upper", "u": "lower", "~": "toggle_case", "gU": "upper", "gu": "lower", "g~": "toggle_case",
     "<Tab>": "switch_pane",
-    "v": "escape", "V": "escape", "<Esc>": "escape",
+    "v": "escape", "V": "escape", "<Esc>": "escape", "<C-c>": "escape",
     ":": "command",
 }
 
@@ -125,6 +148,43 @@ LANGMAPS = {
 
 # Argument keys that stay as typed: f/F jump to a name starting with that character.
 LITERAL_ARGS = {"find_char", "find_char_back"}
+
+
+# Key names as vim writes them, in any case: <cr>, <ESC>, <Bar>.
+KEY_ALIASES = {n.lower(): n for n in (
+    "<CR>", "<Esc>", "<Tab>", "<S-Tab>", "<BS>", "<Del>", "<Space>", "<Up>", "<Down>", "<Left>",
+    "<Right>", "<Home>", "<End>", "<PgUp>", "<PgDown>", "<Menu>", "<MediaPlay>", "<MediaNext>",
+    "<MediaPrev>", "<MediaStop>", *(f"<F{i}>" for i in range(1, 13)))}
+KEY_ALIASES.update({"<return>": "<CR>", "<enter>": "<CR>", "<escape>": "<Esc>", "<backspace>": "<BS>",
+                    "<delete>": "<Del>", "<pageup>": "<PgUp>", "<pagedown>": "<PgDown>",
+                    "<bar>": "|", "<lt>": "<", "<bslash>": "\\"})
+MODIFIER_ORDER = "CAS"  # <C-A-S-F5>, as key_name() writes them
+KEY_TOKEN = re.compile(r"<[^<>\s]+>|.")  # one key in a sequence
+
+
+def split_keys(keys: str, leader: str = "\\") -> list[str]:
+    """Vim key notation as a list of keys in the engine's names:
+    "<leader>d<cr>" -> ["\\", "d", "<CR>"], "<c-W>o" -> ["<C-w>", "o"]."""
+    out = []
+    for token in KEY_TOKEN.findall(keys):
+        low = token.lower()
+        if low == "<leader>":
+            out.append(leader)
+        elif low in KEY_ALIASES:
+            out.append(KEY_ALIASES[low])
+        elif m := re.fullmatch(r"<((?:[csam]-)+)(.+)>", token, re.IGNORECASE):
+            mods = {c if c != "M" else "A" for c in m.group(1).upper().replace("-", "")}
+            key = m.group(2)
+            if len(key) == 1:
+                key = key.lower() if key.isalpha() and "C" in mods else key
+                order = "CSA"  # <C-S-p>, as key_name() writes letters
+            else:
+                key = KEY_ALIASES.get(f"<{key.lower()}>", f"<{key}>")[1:-1]
+                order = MODIFIER_ORDER
+            out.append("<" + "".join(c + "-" for c in order if c in mods) + key + ">")
+        else:
+            out.append(token)
+    return out
 
 
 def _split(spec: str, sep: str) -> list[str]:
@@ -205,6 +265,13 @@ def user_bindings(user: dict[str, dict[str, str]]):
     return bindings, arg_bindings
 
 
+def _continues(binding: str, seq: str) -> bool:
+    """Whether `binding` is `seq` plus more keys ("<C-w><C-w>" doesn't continue "<C-w><")."""
+    if binding == seq or not binding.startswith(seq):
+        return False
+    return not seq.endswith("<") or KEY_TOKEN.findall(binding)[:len(KEY_TOKEN.findall(seq))] == KEY_TOKEN.findall(seq)
+
+
 @dataclass
 class Action:
     name: str
@@ -234,6 +301,7 @@ class KeyEngine:
         self.register: str | None = None  # "x typed before the command
         self._register_next = False  # '"' typed, the register name comes next
         self.langmap: dict[str, str] = {}  # parse_langmap(): typed character -> meant
+        self.leftover: str | None = None  # a key that ended a waiting binding: feed it again
 
     def translate(self, key: str) -> str:
         """Apply the langmap to a typed key: "о" -> "j", "<C-в>" -> "<C-d>"."""
@@ -302,14 +370,29 @@ class KeyEngine:
                 self.inner += key
                 return None
         seq = self.pending + key
+        longer = any(_continues(k, seq) for k in (*table, *arg_table))
         if seq in table:
+            if longer:  # ",x" is mapped too: wait for the next key or the timeout
+                self.pending = seq
+                return None
             return self._done(_action(table[seq], self._count()))
         if seq in arg_table:
             self.pending = seq
             self.awaiting = arg_table[seq]
             return None
-        if any(k.startswith(seq) for k in (*table, *arg_table)):
+        if longer:
             self.pending = seq
             return None
+        if self.pending in table:  # the shorter binding it waited on, then this key again
+            self.leftover = key
+            return self._done(_action(table[self.pending], self._count()))
         self.reset()
+        return None
+
+    def flush(self) -> Action | None:
+        """The 'timeoutlen' delay ran out: run the binding typed so far, if it is
+        a whole one (it waited because a longer binding starts with it)."""
+        table = self.bindings.get(self.mode, {})
+        if self.pending in table and not self.awaiting:
+            return self._done(_action(table[self.pending], self._count()))
         return None

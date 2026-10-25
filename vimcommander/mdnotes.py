@@ -1,9 +1,7 @@
 """Markdown notes for the quick view (Qt-free).
 
-prepare() turns Obsidian syntax into plain Markdown that QTextDocument can show:
-[[note|alias]] becomes a link with the "wikilink:" scheme, ![[image.png]] an
-image, and YAML front matter a code block. resolve() finds the file a link
-points to: relative to the note, then from the vault root (the nearest folder
+mdrender turns [[note|alias]] into a link with the "wikilink:" scheme (_link())
+and ![[image.png]] into an image. resolve() finds the file a link points to: relative to the note, then from the vault root (the nearest folder
 with .obsidian), then by name anywhere in the vault, like Obsidian does.
 """
 
@@ -16,7 +14,6 @@ from .graph import SKIP_DIRS
 EXTENSIONS = (".md", ".markdown")
 EMBED = re.compile(r"!\[\[([^\]|#\n]+)(?:#[^\]|\n]*)?(?:\|[^\]\n]*)?\]\]")
 WIKI = re.compile(r"\[\[([^\]|\n]+?)(?:\|([^\]\n]*))?\]\]")
-FENCE = re.compile(r"^[ \t]*(```|~~~)")
 INDEX_LIMIT = 50000
 
 _indexes: dict[str, dict[str, str]] = {}  # vault root -> {lower-case name: path}
@@ -28,42 +25,6 @@ def is_markdown(path: str) -> bool:
 
 def _link(target: str) -> str:
     return "wikilink:" + urllib.parse.quote(target.strip())
-
-
-def _convert(line: str) -> str:
-    line = EMBED.sub(lambda m: f"![{m.group(1).strip()}]({_link(m.group(1))})", line)
-
-    def wiki(m):
-        target = m.group(1).strip()
-        label = (m.group(2) or target.split("#")[0] or target).strip()
-        return f"[{label.replace('[', '(').replace(']', ')')}]({_link(target)})"
-    return WIKI.sub(wiki, line)
-
-
-def prepare(text: str) -> str:
-    """Obsidian Markdown -> Markdown QTextDocument understands. Code blocks are
-    left alone; front matter is shown as a code block."""
-    lines = text.splitlines()
-    out = []
-    if lines and lines[0].strip() == "---":
-        for end in range(1, min(len(lines), 200)):
-            if lines[end].strip() in ("---", "..."):
-                out += ["```yaml", *lines[1:end], "```", ""]
-                lines = lines[end + 1:]
-                break
-    fence = None
-    for line in lines:
-        m = FENCE.match(line)
-        if fence:
-            if m and m.group(1) == fence:
-                fence = None
-            out.append(line)
-        elif m:
-            fence = m.group(1)
-            out.append(line)
-        else:
-            out.append(_convert(line))
-    return "\n".join(out)
 
 
 def vault_root(path: str) -> str:

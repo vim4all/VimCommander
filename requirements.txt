@@ -1,4 +1,5 @@
 PySide6-Essentials>=6.5
+PySide6-Addons>=6.5  # QtMultimedia, for the music player (optional)
 segno>=1.5
 paramiko>=3.0
 pypdfium2>=4.30

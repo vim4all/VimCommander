@@ -8,7 +8,7 @@ from vimcommander.terminal import cd_command, mark_command, shell_kind
 
 try:
     import pyte  # noqa: F401
-    from vimcommander.termview import TermScreen
+    from vimcommander.termview import TermScreen, TermStream
 except ImportError:
     TermScreen = None
 
@@ -88,7 +88,7 @@ class ScreenTest(unittest.TestCase):
     def screen(self):
         sent = []
         s = TermScreen(20, 5, sent.append)
-        return s, pyte.Stream(s), sent
+        return s, TermStream(s), sent
 
     def text(self, s, y):
         return "".join(s.buffer[y][x].data for x in range(s.columns)).rstrip()
@@ -111,7 +111,23 @@ class ScreenTest(unittest.TestCase):
         self.assertEqual(len(s.history.top), 8)
         stream.feed("\x1b[>4;2m\x1b[31mred")  # vim's modifyOtherKeys must not break the colors
         self.assertEqual(s.buffer[s.cursor.y][0].fg, "red")
+        self.assertFalse(s.buffer[s.cursor.y][0].underscore)  # pyte read it as SGR 4: underline
         stream.feed("\x1b[6n")  # where is the cursor? -> answered to the program
+        self.assertTrue(sent and sent[-1].startswith("\x1b["))
+
+    def test_marked_and_colon_sequences(self):
+        s, stream, sent = self.screen()
+        for part in ("a\x1b", "[>4", ";1mb", "\x1b[>1uc"):  # split between reads; kitty keys
+            stream.feed(part)
+        self.assertEqual(self.text(s, 0), "abc")
+        self.assertFalse(any(s.buffer[0][x].underscore or s.buffer[0][x].bold for x in range(3)))
+        stream.feed("\r\n\x1b[1;32mA\x1b[4:3mB\x1b[4:0;38:2::1:2:3mC\x1b[58:5:1mD")
+        row = s.buffer[1]
+        self.assertEqual(self.text(s, 1), "ABCD")
+        self.assertEqual([(row[x].underscore, row[x].fg, row[x].bold) for x in range(4)],
+                         [(False, "green", True), (True, "green", True), (False, "010203", True),
+                          (False, "010203", True)])  # 58 (underline color) dropped, not a reset
+        stream.feed("\x1b[>c")  # secondary device attributes: still answered
         self.assertTrue(sent and sent[-1].startswith("\x1b["))
 
 

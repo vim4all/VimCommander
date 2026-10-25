@@ -1,6 +1,6 @@
 import unittest
 
-from vimcommander.vim import NORMAL, VISUAL, KeyEngine, parse_langmap
+from vimcommander.vim import NORMAL, NORMAL_KEYS, VISUAL, KeyEngine, parse_langmap, split_keys
 
 
 def feed(engine, *keys):
@@ -73,6 +73,52 @@ class KeyEngineTest(unittest.TestCase):
     def test_ctrl_w_sequence(self):
         [a] = feed(KeyEngine(), "<C-w>", "l")
         self.assertEqual(a.name, "right_pane")
+
+    def test_pane_layout_keys(self):
+        for keys, name in ((("<C-w>", "o"), "only_pane"), (("<C-w>", "x"), "swap_panes"),
+                           (("<C-w>", "="), "equal_panes"), (("<C-w>", "|"), "maximize_pane")):
+            self.assertEqual(feed(KeyEngine(), *keys)[0].name, name)
+        [a] = feed(KeyEngine(), "3", "<C-w>", ">")
+        self.assertEqual((a.name, a.count, a.arg), ("resize_pane", 3, "1"))
+        self.assertEqual(feed(KeyEngine(), "<C-w>", "<")[0].arg, "-1")
+        self.assertEqual(feed(KeyEngine(), "<C-w>", "<C-w>")[0].name, "switch_pane")
+
+    def test_increment_keys(self):
+        [a] = feed(KeyEngine(), "5", "<C-a>")
+        self.assertEqual((a.name, a.count, a.arg), ("increment", 5, None))
+        [a] = feed(KeyEngine(), "g", "<C-x>")
+        self.assertEqual((a.name, a.arg), ("decrement", "g"))
+        engine = KeyEngine()
+        engine.mode = VISUAL
+        self.assertEqual(feed(engine, "g", "<C-a>")[0].arg, "g")
+
+    def test_case_operators(self):
+        [a] = feed(KeyEngine(), "g", "U", "U")
+        self.assertEqual(a.name, "upper")
+        [a] = feed(KeyEngine(), "2", "g", "u", "3", "j")
+        self.assertEqual((a.name, a.arg, a.count), ("lower_motion", "down", 6))
+        self.assertEqual(feed(KeyEngine(), "g", "~", "G")[0].name, "toggle_case_motion")
+        engine = KeyEngine()
+        engine.mode = VISUAL
+        self.assertEqual([a.name for a in feed(engine, "U", "u", "~", "x")],
+                         ["upper", "lower", "toggle_case", "cut"])
+
+    def test_split_keys(self):
+        self.assertEqual(split_keys("<leader>d<cr>", ","), [",", "d", "<CR>"])
+        self.assertEqual(split_keys("<c-W>o<C-S-P><s-f5><M-x>"), ["<C-w>", "o", "<C-S-p>", "<S-F5>", "<A-x>"])
+        self.assertEqual(split_keys("<lt><Bar><Space>a"), ["<", "|", "<Space>", "a"])
+
+    def test_map_waits_for_longer_one(self):
+        bindings = {NORMAL: {**NORMAL_KEYS, ",x": "keys:G"}, VISUAL: {}}
+        engine = KeyEngine(bindings)
+        self.assertEqual(feed(engine, ","), [])  # "," alone is a binding too: wait
+        self.assertEqual(engine.flush().name, "repeat_find_back")  # the timeout
+        self.assertEqual(feed(engine, ",", "x")[0].arg, "G")
+        [a] = feed(engine, "2", ",", "j")  # "," then j: the j is left over
+        self.assertEqual((a.name, a.count, engine.leftover), ("repeat_find_back", 2, "j"))
+        self.assertEqual(KeyEngine().flush(), None)
+        engine = KeyEngine()
+        self.assertEqual(feed(KeyEngine(), "<C-w>", "<")[0].name, "resize_pane")  # <C-w><C-w> starts the same
 
     def test_shared_prefix(self):
         engine = KeyEngine()

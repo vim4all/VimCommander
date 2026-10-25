@@ -17,7 +17,7 @@ import zipfile
 
 from PySide6.QtCore import QFile, QObject, Signal
 
-from . import archive, pdftools, remote
+from . import archive, pdftools, remote, trash
 
 CHUNK = 1024 * 1024
 
@@ -109,21 +109,7 @@ def move_to_trash(path: str) -> str:
 
 
 def restore_from_trash(trash_path: str, original: str) -> None:
-    if not trash_path or not os.path.lexists(trash_path):
-        raise OSError(f"'{os.path.basename(original)}' is no longer in the trash")
-    if os.path.lexists(original):
-        raise OSError(f"'{os.path.basename(original)}' exists again")
-    os.makedirs(os.path.dirname(original), exist_ok=True)
-    shutil.move(trash_path, original)
-    folder, name = os.path.split(trash_path)
-    if name.startswith("$R"):  # Windows Recycle Bin keeps the details in $I...
-        info = os.path.join(folder, "$I" + name[2:])
-    else:  # freedesktop.org trash: files/NAME + info/NAME.trashinfo
-        info = os.path.join(os.path.dirname(folder), "info", name + ".trashinfo")
-    try:
-        os.remove(info)
-    except OSError:
-        pass
+    trash.restore(trash_path, original)
 
 
 def _cross_device(e: OSError) -> bool:
@@ -137,6 +123,8 @@ OPERATIONS = {  # op: (verb while running, verb when done)
     "delete": ("Deleting", "Deleted"),
     "undo": ("Undoing", "Undid"),
     "redo": ("Redoing", "Redid"),
+    "restore": ("Restoring", "Restored"),
+    "purge": ("Deleting", "Deleted"),  # :trash, for good
     "sync": ("Synchronizing", "Synchronized"),
     "zip": ("Zipping", "Zipped"),
     "hash": ("Hashing", "Hashed"),
@@ -645,6 +633,14 @@ class Job(QObject):
             raise OSError("a remote folder has no trash")
         where = move_to_trash(src)
         self.undo.append(("trashed", src, where))
+
+    def _restore(self, item: tuple):
+        """(path in the trash, where to put it): from :trash."""
+        trash.restore(item[0], item[1])
+        self.undo.append(("created", item[1]))
+
+    def _purge(self, src: str):
+        trash.purge(src)
 
     def _delete(self, src: str):
         if loc := remote.parse(src):
