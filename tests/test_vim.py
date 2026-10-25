@@ -205,7 +205,7 @@ class LangmapTest(unittest.TestCase):
 
     def test_vim_format(self):
         self.assertEqual(parse_langmap("õ[ü]"), {"õ": "[", "ü": "]"})
-        self.assertEqual(parse_langmap("аб;f\;"), {"а": "f", "б": ";"})
+        self.assertEqual(parse_langmap("аб;f\\;"), {"а": "f", "б": ";"})
         self.assertEqual(parse_langmap("cyrillic,ж:")["ж"], ":")
         for bad in ("аб;f", "ab;cd", "абв"):
             with self.assertRaises(ValueError):

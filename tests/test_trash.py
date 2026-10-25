@@ -39,8 +39,9 @@ class FreedesktopTest(unittest.TestCase):
               "[Trash Info]\nPath=/data/pics\nDeletionDate=2026-10-02T10:00:00\n")
         write(os.path.join(home, "info", "gone.trashinfo"), "[Trash Info]\nPath=/data/gone\n")
         found = sorted(trash.read_trash_dir(home), key=lambda i: i.name)
+        data = os.path.normpath("/data")  # \data on Windows
         self.assertEqual([(i.name, i.folder, i.is_dir) for i in found],
-                         [("a.txt", "/data", False), ("pics", "/data", True)])
+                         [("a.txt", data, False), ("pics", data, True)])
         self.assertIsNone(found[1].size())
         self.assertEqual(found[0].size(), 1)
 
