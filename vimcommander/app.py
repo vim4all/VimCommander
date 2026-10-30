@@ -259,6 +259,9 @@ HELP = """\
 &nbsp;&nbsp;Ctrl-w m = the playlist in the other pane (Enter play, Space pause, n N, ← → seek, { } speed, d remove, q close)
 &nbsp;&nbsp;:play off = stop, :play shuffle | repeat | volume 50 | speed 1.5 | seek +10 | save NAME (an .m3u8 here)
 <b>Memory map</b>: Ctrl-q on a linker .map (GNU ld, Keil) or .elf = Flash / RAM bars and a treemap of sections, objects, functions
+<b>3D model</b>: Ctrl-q on a .step / .stp / .stl file = the shaded model; drag = rotate, right-drag = pan, wheel = zoom, double-click = reset
+&nbsp;&nbsp;click = measure from a corner, circle centre or face (a second click = the distance), right-click = clear; the mouse names the part
+&nbsp;&nbsp;zv = keys to the model: h j k l rotate, H J K L pan, + - zoom, 0 = home, 1-6 = front back right left top bottom, w = wireframe, c = clear, Esc = back
 <b>Share</b>: :share = QR code for a phone to download the tagged files and send files back; :share stop
 <b>SSH</b>: :ssh user@host[:path] = a server's folder in this pane (F5 / F6 copy across, F4 edits and uploads
 &nbsp;&nbsp;on save, Ctrl-` = a shell there), :mirror = make the other pane a copy of this one, :ssh close
@@ -596,6 +599,8 @@ class MainWindow(QMainWindow):
             timer.timeout.connect(lambda pane=pane: self.run_git(pane))
             pane.git_timer = timer
             pane.preview.graph.open_requested.connect(self.on_graph_open)
+            for view in (pane.preview, pane.column_preview):
+                view.model3d.leave.connect(lambda: self.pane.view.setFocus())
             pane.preview.graph.options_changed.connect(self.save_graph_options)
             pane.preview.markdown.open_requested.connect(self.on_note_link)
 
@@ -1430,6 +1435,13 @@ class MainWindow(QMainWindow):
             self.pane.update_columns()
         self.show_message("Hex view " + ("on: every file in hex" if preview.HEX["on"] else
                                          "off (binary files still show in hex)"))
+
+    def cmd_model_keys(self, a):
+        """zv: the 3D model in quick view takes the keys (h j k l rotate…); Esc gives them back."""
+        for view in (self.other.preview, self.pane.column_preview):
+            if view.isVisible() and view.stack.currentWidget() is view.model3d and view.model3d.focus_keys():
+                return
+        self.show_message("No 3D model in quick view (Ctrl-q on a .step or .stl file)")
 
     def cmd_plot(self, a):
         """zp: quick view shows CSV files as a plot of their numeric columns; again = as a table."""
@@ -3682,10 +3694,12 @@ class MainWindow(QMainWindow):
         self.cmdline.setFocus()
 
     def hide_cmdline(self) -> None:
+        # Focus first: hiding the focused line would hand the focus to the next
+        # widget (the left pane), which makes that pane the active one.
+        self.pane.view.setFocus()
         self.cmdline.hide()
         self.prompt_label.hide()
         self.message_label.show()
-        self.pane.view.setFocus()
 
     def complete_cmdline(self, backwards: bool) -> None:
         """Tab / Shift-Tab on the ':' line: cycle through command names or paths."""

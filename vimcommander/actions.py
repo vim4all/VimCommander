@@ -71,7 +71,7 @@ ACTIONS = {
     "playlist": "music: the playlist in the other pane",
     "record": "record a macro into…", "at": "play a macro… (@: last command)",
     # Views and windows
-    "quickview": "quick view", "plot": "CSV in quick view: plot / table", "grid": "thumbnails / list", "terminal": "terminal panel", "graph_window": "graph window", "activity": "activity heatmap",
+    "quickview": "quick view", "plot": "CSV in quick view: plot / table", "model_keys": "keys to the 3D model in quick view", "grid": "thumbnails / list", "terminal": "terminal panel", "graph_window": "graph window", "activity": "activity heatmap",
     "context_menu": "context menu", "command": "command line", "palette": "command palette",
     "help": "key reference", "quit": "close tab / quit",
 }

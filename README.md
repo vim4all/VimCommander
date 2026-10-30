@@ -16,7 +16,7 @@ VimCommander combines the layout of Total Commander with the keyboard of [vifm](
 - [Commands](#commands)
 - **[Finding files and folders](#finding-files-and-folders)**: [Find files](#find-files) · [Result lists](#result-lists) · [Search in files](#search-in-files) · [zoxide](#zoxide) · [Activity calendar](#activity-calendar) · [Which-key and command palette](#which-key-and-command-palette)
 - **[Working with files](#working-with-files)**: [Bulk rename](#bulk-rename) · [Global commands](#global-commands) · [Shelf](#shelf) · [Zip files](#zip-files) · [PDF tools](#pdf-tools) · [Folder rules](#folder-rules) · [Freeing space](#freeing-space) · [Trash and undo](#trash-and-undo) · [Jobs and the copy queue](#jobs-and-the-copy-queue) · [Drag and drop](#drag-and-drop) · [Right-click menu](#right-click-menu) · [Launch bar](#launch-bar)
-- **[Viewing files](#viewing-files)**: [Quick view](#quick-view) · [CSV plot](#csv-plot) · [Firmware memory map](#firmware-memory-map) · [Folder graph](#folder-graph) · [Music player](#music-player)
+- **[Viewing files](#viewing-files)**: [Quick view](#quick-view) · [CSV plot](#csv-plot) · [Firmware memory map](#firmware-memory-map) · [3D models](#3d-models) · [Folder graph](#folder-graph) · [Music player](#music-player)
 - **[Panes and layout](#panes-and-layout)**: [Thumbnail grid](#thumbnail-grid) · [Miller columns](#miller-columns) · [Linked panes](#linked-panes) · [Sessions](#sessions)
 - **[Comparing folders and files](#comparing-folders-and-files)**: [Compare and synchronize](#compare-and-synchronize) · [Side-by-side diff](#side-by-side-diff) · [Git](#git)
 - **[Terminal](#terminal)**: [Terminal pane](#terminal-pane)
@@ -51,7 +51,7 @@ VimCommander combines the layout of Total Commander with the keyboard of [vifm](
 
 **Seeing what's there**
 
-- [Quick view](#quick-view) (`Ctrl-q`) of text, images, PDFs, Markdown notes, CSV tables or [plots](#csv-plot), Jupyter notebooks, STM32CubeMX projects, [firmware memory maps](#firmware-memory-map) and hex.
+- [Quick view](#quick-view) (`Ctrl-q`) of text, images, PDFs, Markdown notes, CSV tables or [plots](#csv-plot), Jupyter notebooks, STM32CubeMX projects, [firmware memory maps](#firmware-memory-map), [STEP 3D models](#3d-models) and hex.
 - [Folder graphs](#folder-graph): tree, sunburst and treemap of disk usage, a timeline, file types, Obsidian-style note links and code imports.
 - [Thumbnail grid](#thumbnail-grid), [Miller columns](#miller-columns), [git](#git) status colors, [free space](#freeing-space) finders (`:reclaim`, `:dupes`).
 - A [music player](#music-player) (`gm`) for a folder or the tagged files: one slim row at the bottom, the playlist in a pane on demand.
@@ -207,6 +207,7 @@ Keys work in the file panes. Unless noted, a count before a key repeats it or ap
 | `gz` | jump to a folder from zoxide's list (see [zoxide](#zoxide)) |
 | `Ctrl-q` | quick view: the other pane previews the item under the cursor (a folder, or `..` for the current folder, shows as a [graph](#folder-graph)); press again to close |
 | `zp` | quick view shows CSV files as a [plot](#csv-plot) of their numbers, or as a table again (turns quick view on) |
+| `zv` | the keys go to the [3D model](#3d-models) in quick view (`Esc` gives them back) |
 | `Ctrl-p` | [find files](#find-files) below this folder, by a few letters of their name |
 | `g/` | [search inside the files](#search-in-files) below this folder |
 | `gf` | in a [result list](#result-lists): open the file's folder with the cursor on it |
@@ -741,6 +742,7 @@ Programs start in the active pane's folder. On the first run the bar is filled w
 | STM32CubeMX project (`.ioc`) | the chip, clocks, a pin table with labels and modes, the peripheral settings you changed, DMA and interrupts |
 | LTspice result (`.raw`) | its traces as a [plot](#csv-plot); an operating point as a table |
 | linker `.map`, `.elf` | the [firmware memory map](#firmware-memory-map) |
+| 3D model (`.step`, `.stp`, `.stl`) | the [3D model](#3d-models), shaded, to rotate, zoom and measure |
 | binary file | a hex dump (`:hex` shows every file that way) |
 
 Files inside zips show too; on SSH and FTP servers, text and images.
@@ -768,6 +770,30 @@ Quick view (`Ctrl-q`) of a linker map file or a firmware image shows what fills 
 - **`.elf` / `.axf`** images: Flash and RAM from the sections, with the functions and variables of the symbol table. If a `.map` with the same name is next to it, that is shown instead (it knows the object files).
 
 At the top, a bar per region shows how full it is (green, yellow over 70%, red over 90%); click one to see what fills it. Below, a treemap: sections with their object files inside; click a box to zoom into it (then into its functions), right-click or click the path line to go back. Hover a box for its exact size and share. A `.map` that isn't a linker map (a JavaScript source map, a game level) is shown as text.
+
+### 3D models
+
+Quick view (`Ctrl-q`) of a STEP file (`.step`, `.stp`) shows the model, shaded, with its edges and colours: a part from a component library, a FreeCAD or SolidWorks export, or a whole board exported from Altium or KiCad with its components in place. The title line gives the number of parts, solids and faces, the size, and the program that wrote the file. **STL** meshes (binary or text, from a 3D printer's slicer or a component library) show the same way, with their sharp edges drawn; STL has no units, so the size has none.
+
+- **Drag** to rotate (the model's z axis stays up), **right-drag**, **middle-drag** or **Shift-drag** to pan, the **wheel** zooms at the mouse, **double-click** goes back to the first view.
+- **Measure**: click a point, then another: the box at the top left gives both points, the distance and Δx, Δy, Δz. A click snaps to a corner (a square marker shows where) or to the centre of a circle or arc (a cross: a pin, a hole, a mounting slot) when one is within a few pixels in front, else it takes the point on the face. A third click starts again; right-click clears.
+- **Part names**: the mouse shows the name of the part under it. In a board from Altium that is the designator and its model (`U8 › SOIC8`).
+- **Keys**: `zv` in the file pane gives the keys to the model (a frame shows it has them):
+
+  | Key | Does |
+  |---|---|
+  | `h` `l`, `j` `k` (or the arrows) | rotate by 15° |
+  | `H` `J` `K` `L` (or Shift-arrows) | pan |
+  | `+` `-` | zoom |
+  | `0` | the first view |
+  | `1` … `6` | front, back, right, left, top, bottom |
+  | `w` | wireframe: every edge, hidden ones too (an STL's triangles) |
+  | `c` | clear the measurement |
+  | `Esc`, `q`, `Tab` | back to the file pane (`Esc` first clears a measurement) |
+- Plane, cylinder, cone, sphere and torus faces are shaded; a B-spline face is shaded when it is a whole patch (a fillet), otherwise only its outline is drawn. It is a preview, not a CAD kernel: complex trimmed surfaces can show as wireframe, and where pieces overlap the drawing order can be slightly off.
+- Big models (a 20 MB board) take a few seconds to read, in the background. While the view moves, only the biggest pieces are drawn; the whole model once it stops. Models over 256 MB show as text, and a SystemTap `.stp` script shows as text too.
+
+STEP and STL files inside zips show as well. A Windows certificate trust list (also `.stl`) shows in hex.
 
 ### Folder graph
 

@@ -91,7 +91,7 @@ NORMAL_KEYS = {
     "ga": "dir_size", "gA": "all_dir_sizes", "DD": "delete",  # vifm's keys
     "<C-S-p>": "palette", "<C-p>": "files", "gr": "activity",
     "g/": "grep", "gf": "goto_file", "gd": "diff", "zs": "shelf_add", "zS": "shelf",
-    "zi": "grid", "zp": "plot", "<C-`>": "terminal",
+    "zi": "grid", "zp": "plot", "zv": "model_keys", "<C-`>": "terminal",
     "gm": "play", "gM": "play_pause", "]m": "play_next", "[m": "play_prev",  # music
     "<MediaPlay>": "play_pause", "<MediaNext>": "play_next", "<MediaPrev>": "play_prev", "<MediaStop>": "play_stop",
     "]q": "qf_next", "[q": "qf_prev", "&": "repeat_substitute",  # the next / previous item of the result list, in its folder

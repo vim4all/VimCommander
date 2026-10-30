@@ -1,5 +1,6 @@
 import base64
 import json
+import math
 import os
 import tempfile
 import unittest
@@ -222,6 +223,71 @@ class QuickViewTest(unittest.TestCase):
         self.view.show_path(self.write("photo.raw", bytes(range(256)) * 8))
         self.wait(lambda: self.view.stack.currentWidget() is self.view.text)
         self.assertIs(self.view.stack.currentWidget(), self.view.text)  # someone else's .raw: hex
+
+    def test_step_model(self):
+        from PySide6.QtTest import QTest
+        from PySide6.QtCore import QPoint, QPointF, Qt
+        from tests.test_step import box_step
+        self.view.show_path(self.write("box.step", box_step(color=(0.2, 0.4, 0.8)).encode()))
+        model = self.view.model3d
+        self.assertIs(self.view.stack.currentWidget(), model)
+        self.wait(lambda: model.model is not None)
+        self.assertIn("1 solids, 6 faces", self.view.title.text())
+        self.assertIn("2 × 3 × 1 mm", self.view.title.text())
+        model.grab()  # paints the six faces
+        yaw = model.yaw
+        QTest.mousePress(model, Qt.MouseButton.LeftButton, pos=QPoint(100, 100))
+        QTest.mouseMove(model, QPoint(150, 100))
+        QTest.mouseRelease(model, Qt.MouseButton.LeftButton, pos=QPoint(150, 100))
+        self.assertNotEqual(model.yaw, yaw)
+        QTest.mouseDClick(model, Qt.MouseButton.LeftButton, pos=QPoint(150, 100))
+        self.assertEqual(model.yaw, yaw)
+        # measuring: clicks near two corners snap to them
+        model.grab()
+        for corner in ((2.0, 0.0, 1.0), (0.0, 0.0, 1.0)):
+            x, y, _depth = model._project(corner)
+            model.measure(QPointF(x + 3, y - 2))
+        self.assertEqual(model.points, [((2.0, 0.0, 1.0), "corner"), ((0.0, 0.0, 1.0), "corner")])
+        model.grab()  # draws the distance
+        # a click on a face, away from corners: the point on its plane
+        x, y, _depth = model._project((1.0, 1.5, 1.0))
+        model.measure(QPointF(x, y))
+        (point, how), = model.points
+        self.assertEqual(how, "surface")
+        for got, want in zip(point, (1.0, 1.5, 1.0)):
+            self.assertAlmostEqual(got, want, places=4)
+        # the keys after zv
+        self.assertTrue(model.focus_keys())
+        left = []
+        model.leave.connect(lambda: left.append(1))
+        QTest.keyClick(model, Qt.Key.Key_L)
+        self.assertNotEqual(model.yaw, yaw)
+        QTest.keyClick(model, Qt.Key.Key_1)
+        self.assertEqual((model.yaw, model.pitch), (0.0, -math.pi / 2))  # front
+        zoom = model.zoom
+        QTest.keyClick(model, Qt.Key.Key_Plus)
+        self.assertGreater(model.zoom, zoom)
+        QTest.keyClick(model, Qt.Key.Key_W)
+        self.assertTrue(model.wire)
+        model.grab()
+        QTest.keyClick(model, Qt.Key.Key_Escape)  # first clears the measurement
+        self.assertEqual((model.points, left), ([], []))
+        QTest.keyClick(model, Qt.Key.Key_Escape)
+        self.assertEqual(left, [1])
+        # an STL mesh, and a Windows .stl that isn't one
+        from tests.test_step import cube_stl_ascii
+        self.view.show_path(self.write("cube.stl", cube_stl_ascii()))
+        self.wait(lambda: model.model is not None)
+        self.assertIn("12 triangles", self.view.title.text())
+        self.view.show_path(self.write("trust.stl", bytes(range(256)) * 4))
+        self.wait(lambda: self.view.stack.currentWidget() is self.view.text)
+        self.assertIs(self.view.stack.currentWidget(), self.view.text)
+        # a SystemTap script is a .stp file too: text
+        self.view.show_path(self.write("probe.stp", b"probe begin { println(1) }\n"))
+        self.assertIs(self.view.stack.currentWidget(), self.view.text)
+        self.view.show_path(self.write("broken.step", b"ISO-10303-21;\nHEADER;\n"))
+        self.wait(lambda: model.message.startswith("Cannot"))
+        self.assertIn("Cannot show this model", model.message)
 
     def test_ioc(self):
         self.view.show_path(self.write("p.ioc", IOC.encode()))

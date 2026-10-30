@@ -19,9 +19,10 @@ from PySide6.QtGui import (QDesktopServices, QFontDatabase, QImage, QImageReader
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QLabel, QPlainTextEdit, QScrollArea, QSizePolicy,
                                QStackedWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
-from . import archive, cubemx, graphview, ltspice, mdnotes, mdrender, memmap, notebook, pdftools, remote, tabular
+from . import archive, cubemx, graphview, ltspice, mdnotes, mdrender, memmap, notebook, pdftools, remote, step, stl, tabular
 from .memmapview import MemMapView
 from .plotview import PlotView
+from .stepview import StepView
 
 TEXT_LIMIT = 256 * 1024
 IMAGE_LIMIT = 64 * 1024 * 1024
@@ -31,6 +32,7 @@ HEX_LIMIT = 64 * 1024  # bytes shown in the hex view
 HEX = {"on": False}  # :hex: every file in hex, not only binary ones
 PLOT = {"on": False}  # zp: CSV files as a plot instead of a table
 ARCHIVE_PLOT_LIMIT = 256 * 1024 * 1024  # a CSV inside a zip is read up to this for a plot
+STEP_LIMIT = 256 * 1024 * 1024  # bigger STEP models show as text
 NOTEBOOK_LIMIT = 64 * 1024 * 1024  # bigger notebooks show as text
 
 
@@ -483,12 +485,16 @@ class QuickView(QWidget):
         self.plot_area.setWidgetResizable(True)
         self.plot_area.setFrameShape(QFrame.Shape.NoFrame)
         self.plot_area.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.model3d = StepView()  # STEP and STL 3D models
+        self.model3d.summary.connect(lambda text: self.title.setText(
+            f"{os.path.basename(self.current or '')}   {text}"))
+        self.model3d.not_a_model.connect(self._not_a_model)  # a Windows .stl trust list: hex
         self.pdf.status.connect(lambda text: self.title.setText(
             f"{os.path.basename(self.current or '')}   {text}"))
         self.show_hidden = False  # set by the main window, for the graph's scan
         self.stack = QStackedWidget()
         for w in (self.text, self.image, self.info, self.graph, self.markdown, self.pdf, self.csv, self.memmap,
-                  self.plot_area):
+                  self.plot_area, self.model3d):
             self.stack.addWidget(w)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -504,6 +510,7 @@ class QuickView(QWidget):
         self.pdf.stop()
         self.memmap.stop()
         self.plot.stop()
+        self.model3d.stop()
         self.markdown.clear()
         self.csv.clear()
 
@@ -521,6 +528,7 @@ class QuickView(QWidget):
             self.pdf.stop()
         self.memmap.stop()
         self.plot.stop()
+        self.model3d.stop()
         if remote.is_remote(path):
             self.graph.stop()
             try:
@@ -546,6 +554,10 @@ class QuickView(QWidget):
             elif memmap.is_candidate(path) and not in_archive:
                 self.stack.setCurrentWidget(self.memmap)
                 self.memmap.load(path)  # not a linker map / ELF after all: _not_a_map shows text
+            elif step.is_step(path):
+                self._step(path, in_archive)
+            elif stl.is_stl(path):
+                self._stl(path, in_archive)
             elif ltspice.is_raw(path):
                 self._raw(path, in_archive)  # not LTspice after all: _not_numeric shows hex
             elif PLOT["on"] and tabular.is_table(path):
@@ -571,6 +583,13 @@ class QuickView(QWidget):
         if path == self.current:
             try:
                 self._text_or_info(path, False)
+            except OSError as e:
+                self._info(f"Cannot read this file: {e.strerror or e}")
+
+    def _not_a_model(self, path: str) -> None:
+        if path == self.current:
+            try:
+                self._text_or_info(path, archive.inside(path) is not None)
             except OSError as e:
                 self._info(f"Cannot read this file: {e.strerror or e}")
 
@@ -618,6 +637,30 @@ class QuickView(QWidget):
                 self._info(f"Cannot read this file: {e.strerror or e}")
                 return
             self.title.setText(self.title.text() + "   (no numbers to plot)")
+
+    def _step(self, path: str, in_archive: bool) -> None:
+        """A STEP 3D model; text if it is something else (a SystemTap .stp script) or too big."""
+        if in_archive:
+            source = archive.read(path, STEP_LIMIT)
+            head = source[:64]
+        else:
+            with open(path, "rb") as f:
+                head = f.read(64)
+            source = path
+        if not step.looks_like_step(head) or (not in_archive and os.path.getsize(path) > STEP_LIMIT):
+            self._text_or_info(path, in_archive)
+            return
+        self.stack.setCurrentWidget(self.model3d)
+        self.model3d.load(path, source)
+
+    def _stl(self, path: str, in_archive: bool) -> None:
+        """An STL mesh; a Windows certificate trust list (.stl too) turns out not to be one."""
+        if not in_archive and os.path.getsize(path) > STEP_LIMIT:
+            self._text_or_info(path, in_archive)
+            return
+        source = archive.read(path, STEP_LIMIT) if in_archive else path
+        self.stack.setCurrentWidget(self.model3d)
+        self.model3d.load(path, source, stl.parse)
 
     def _notebook(self, path: str, in_archive: bool) -> None:
         """A Jupyter notebook's cells and outputs; text if it is too big or not one."""
