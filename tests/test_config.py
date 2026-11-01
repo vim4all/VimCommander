@@ -2,9 +2,11 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from vimcommander import config
-from vimcommander.bar import WINDOWS, expand_args, split_command
+from vimcommander import bar
+from vimcommander.bar import MAC, WINDOWS, expand_args, split_command
 from vimcommander.vim import NORMAL, VISUAL, KeyEngine, user_bindings
 
 
@@ -84,3 +86,23 @@ class ConfigFileTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(WINDOWS or MAC, "$TERMINAL is only read on Linux and other Unixes")
+class DefaultTerminalTest(unittest.TestCase):
+    def which(self, *found):
+        return mock.patch.object(bar.shutil, "which", side_effect=lambda name: name if name in found else None)
+
+    def test_terminal_env_wins(self):
+        with mock.patch.dict(os.environ, {"TERMINAL": "kitty --single-instance"}), \
+                self.which("kitty", "x-terminal-emulator"):
+            self.assertEqual(bar.default_terminal(), "kitty --single-instance")
+
+    def test_missing_terminal_env_is_ignored(self):
+        with mock.patch.dict(os.environ, {"TERMINAL": "nosuchterm"}), self.which("xterm"):
+            self.assertEqual(bar.default_terminal(), "xterm")
+
+    def test_detects_without_env(self):
+        env = {k: v for k, v in os.environ.items() if k != "TERMINAL"}
+        with mock.patch.dict(os.environ, env, clear=True), self.which("konsole", "xterm"):
+            self.assertEqual(bar.default_terminal(), "konsole")

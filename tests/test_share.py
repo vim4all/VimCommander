@@ -6,6 +6,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from unittest import mock
 
 from vimcommander import share, terminal
 
@@ -56,6 +57,33 @@ class ShareTest(unittest.TestCase):
     def test_names(self):
         self.assertEqual(share.safe_name('C:\\x\\a<b>.txt'), "a_b_.txt")
         self.assertEqual(share.safe_name(".."), "upload")
+
+
+class AddressTest(unittest.TestCase):
+    def outgoing(self, table):
+        return mock.patch.object(share, "_outgoing_address", side_effect=lambda host: table.get(host))
+
+    def test_tailscale_up(self):
+        with self.outgoing({share.TAILSCALE_DNS: "100.75.46.3"}):
+            self.assertEqual(share.tailscale_address(), "100.75.46.3")
+
+    def test_tailscale_down(self):
+        # without Tailscale the route to its DNS address leaves through the LAN
+        with self.outgoing({share.TAILSCALE_DNS: "192.168.1.20"}):
+            self.assertIsNone(share.tailscale_address())
+        with self.outgoing({}):
+            self.assertIsNone(share.tailscale_address())
+
+    def test_order(self):
+        table = {"10.255.255.255": "192.168.1.20", share.TAILSCALE_DNS: "100.75.46.3"}
+        with self.outgoing(table), \
+                mock.patch.object(share.socket, "gethostbyname_ex",
+                                  return_value=("pc", [], ["127.0.1.1", "100.75.46.3", "10.0.0.5"])):
+            self.assertEqual(share.lan_addresses(), ["192.168.1.20", "10.0.0.5", "100.75.46.3"])
+
+    def test_fallback(self):
+        with self.outgoing({}), mock.patch.object(share.socket, "gethostbyname_ex", side_effect=OSError):
+            self.assertEqual(share.lan_addresses(), ["127.0.0.1"])
 
 
 class TerminalTest(unittest.TestCase):

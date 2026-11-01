@@ -70,6 +70,12 @@ def default_terminal() -> str:
         return "wt.exe -d %d" if shutil.which("wt.exe") else "cmd.exe"
     if MAC:
         return "/System/Applications/Utilities/Terminal.app %d"
+    # $TERMINAL is the usual way to name a preferred terminal (i3, sway, many scripts)
+    preferred = os.environ.get("TERMINAL", "").strip()
+    if preferred:
+        tokens = split_command(preferred)
+        if tokens and shutil.which(os.path.expanduser(tokens[0])):
+            return preferred
     for term in ("x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal",
                  "kitty", "alacritty", "xterm"):
         if shutil.which(term):

@@ -1,5 +1,5 @@
-""":share: serve files to a phone (or any device) on the local network, and take
-uploads from it. Pure Python, no Qt; sharedialog.py shows the QR code.
+""":share: serve files to a phone (or any device) on the local network or over
+Tailscale, and take uploads from it. Pure Python, no Qt; sharedialog.py shows the QR code.
 
 Every URL starts with a random token, so only someone who has the link (the QR
 code) can reach the files. Files are streamed; a folder is sent as a zip made
@@ -7,6 +7,7 @@ on the fly. Uploads are plain HTTP PUTs, one per file, from the page's script.
 """
 
 import html
+import ipaddress
 import json
 import os
 import secrets
@@ -20,21 +21,51 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 CHUNK = 256 * 1024
 
 
-def lan_addresses() -> list[str]:
-    """This computer's IPv4 addresses, the one with the default route first."""
-    found = []
+# Tailscale gives every device an address in the CGNAT range, and answers DNS on
+# 100.100.100.100 through its own interface.
+TAILSCALE_NET = ipaddress.ip_network("100.64.0.0/10")
+TAILSCALE_DNS = "100.100.100.100"
+
+
+def _outgoing_address(host: str) -> str | None:
+    """The local address the system would send from to reach `host` (sends nothing)."""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("10.255.255.255", 1))  # sends nothing; picks the outgoing interface
-            found.append(s.getsockname()[0])
+            s.connect((host, 1))
+            return s.getsockname()[0]
     except OSError:
-        pass
+        return None
+
+
+def tailscale_address() -> str | None:
+    """This computer's Tailscale IPv4 address, or None when Tailscale isn't up.
+
+    The route to Tailscale's DNS address only goes through the Tailscale interface
+    while it runs; otherwise it leaves through the default route, whose address is
+    not in Tailscale's range."""
+    addr = _outgoing_address(TAILSCALE_DNS)
+    if addr and ipaddress.ip_address(addr) in TAILSCALE_NET:
+        return addr
+    return None
+
+
+def lan_addresses() -> list[str]:
+    """This computer's IPv4 addresses: the one with the default route first, the
+    Tailscale one (reachable from the user's devices anywhere) last."""
+    found = []
+    if addr := _outgoing_address("10.255.255.255"):  # picks the outgoing interface
+        found.append(addr)
     try:
         for addr in socket.gethostbyname_ex(socket.gethostname())[2]:
             if addr not in found and not addr.startswith("127."):
                 found.append(addr)
     except OSError:
         pass
+    ts = tailscale_address()
+    if ts:
+        if ts in found:
+            found.remove(ts)
+        found.append(ts)
     return found or ["127.0.0.1"]
 
 

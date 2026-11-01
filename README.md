@@ -1015,6 +1015,7 @@ The same page has **Choose files…**, which sends files from the phone (photos,
 
 - Only someone with the link can see anything: every address contains a random code, new for each share.
 - Sharing stops after 15 minutes, when you close the window or press `Esc`, or with `:share stop`.
+- **Away from home**: if the computer and the phone are both on [Tailscale](https://tailscale.com), the window also offers the computer's Tailscale address (`100.x.y.z`, listed last). Pick it and the phone can open the page over any network.
 - If the phone can't open the page, pick another address in the window (computers with VPN, WSL or Hyper-V adapters have several). On Windows, allow VimCommander through the firewall when asked; set a fixed `share.port` so you only need to allow it once.
 
 The `share` section of the config sets `port` (`0` = any free one), `minutes` and `upload` (`false` = the phone can only download).
@@ -1109,7 +1110,7 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
 | `programs.editor` | program for `F4` and `:config`; `""` = the file's default application. Default: `notepad.exe` on Windows, `open -t` on macOS |
 | `programs.editor_line` | program to open a file at a line, for [`:grep`](#search-in-files): `%f` = the file, `%l` = the line. E.g. `"code -g %f:%l"`, `"notepad++ -n%l %f"`, `"gvim +%l %f"`, `"subl %f:%l"`. `""` = `programs.editor`, at the top of the file |
 | `programs.viewer` | program for `F3`; `""` = the file's default application |
-| `programs.terminal` | program for `S` and `:shell`; `""` = detect one (Windows Terminal or cmd, Terminal.app, or a Linux terminal) |
+| `programs.terminal` | program for `S` and `:shell`; `""` = detect one (Windows Terminal or cmd, Terminal.app, or on Linux `$TERMINAL`, else the first installed of `x-terminal-emulator`, gnome-terminal, konsole, …) |
 | `programs.zoxide` | the zoxide program for `:z`, `:zi` and `gz`; `""` = `zoxide` on `PATH` |
 | `programs.git` | the git program for the [git](#git) colors and `:git`; `""` = `git` on `PATH` |
 | `programs.shell` | the shell of the [terminal panel](#terminal); `""` = PowerShell on Windows, `$SHELL` or bash elsewhere |
@@ -1273,7 +1274,7 @@ Things that work differently from what you might expect (planned features are in
 - Git status needs the `git` program; very big repositories may color a moment after the list appears.
 - The terminal panel is not a full terminal emulator: full-screen programs (vim, htop) need a real terminal (`S`).
 - SSH folders don't refresh by themselves (`Ctrl-l`), and changes on a server can't be undone. Servers that offer only SCP, not SFTP, aren't supported. FTP folders have no shell, and copying between two folders on the same FTP server goes through this computer.
-- `:share` works on the local network only (phone and computer on the same Wi-Fi), not over the internet.
+- `:share` works on the local network (phone and computer on the same Wi-Fi), or anywhere over [Tailscale](https://tailscale.com) when both devices are in your tailnet; it is not reachable from the open internet.
 - `:grep` reads files as UTF-8; text in other encodings (UTF-16, legacy code pages) may not match.
 - The code graph finds imports with patterns, not a real parser, so imports built at run time, path aliases (`@/x` in TypeScript) and Python's `sys.path` tricks aren't followed.
 - On Linux and macOS, files yanked to the clipboard (`"+yy`) are gone from it once VimCommander quits; on Windows they stay.

@@ -73,7 +73,8 @@ class ShareDialog(QDialog):
         self.qr = QrCode()
         self.address = QComboBox()
         self.address.addItems(lan_addresses())
-        self.address.setToolTip("This computer's address on the network. If the phone can't open the "
+        self.address.setToolTip("This computer's address on the network (a 100.x one is Tailscale, "
+                                "reachable from your devices anywhere). If the phone can't open the "
                                 "link, try another one")
         self.address.currentTextChanged.connect(self._show_url)
         self.link = QLabel()
@@ -92,7 +93,8 @@ class ShareDialog(QDialog):
         bottom = QHBoxLayout()
         bottom.addWidget(self.status, 1)
         bottom.addWidget(stop)
-        hint = QLabel("Scan the code with the phone's camera (same Wi-Fi). Only someone with this link "
+        hint = QLabel("Scan the code with the phone's camera (same Wi-Fi, or pick the "
+                      "100.x Tailscale address). Only someone with this link "
                       "can see the files. On Windows, allow VimCommander through the firewall if asked.")
         hint.setWordWrap(True)
         layout = QVBoxLayout(self)
