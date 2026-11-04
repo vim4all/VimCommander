@@ -23,7 +23,10 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDialog, QHBoxLa
 
 import tempfile
 
-from . import archive, clipboard, config, gitstatus, graphview, pdftools, preview, remote, rules
+# from . import archive, clipboard, config, gitstatus, graphview, pdftools, preview, remote, rules
+from . import clipboard, config, gitstatus, preview, remote, rules
+# Imported lazily:
+# archive, graphview, pdftools
 from .actions import ACTIONS, ALIASES, COMMANDS, needs_argument, resolve
 from .shelf import Shelf
 from .terminal import Terminal
@@ -37,7 +40,7 @@ from .pane import (DIR_SIZES, NATURAL, SORT_KEYS, Entry, Pane, Results, child_na
 from .results import Search, branch_paths, changed_files, find_paths, parse_find
 from .rename import CASES, check_names, format_name, increment, parse_substitute
 from .vim import (NORMAL, VISUAL, Action, KeyEngine, parse_langmap, split_keys, user_bindings,
-                     TEXT_OBJECTS)
+                   TEXT_OBJECTS)
 , TEXT_OBJECTS
 from .sizing import fit_window
 
@@ -1405,6 +1408,7 @@ class MainWindow(QMainWindow):
     def cmd_new_file(self, a): self.show_cmdline(":", "touch ")
 
     def on_drop(self, paths: list[str], target: str, move: bool) -> None:
+        from . import archive
         if archive.locate(target):
             self.show_message("Archives are read-only")
             return

@@ -27,10 +27,12 @@ try:
 except ImportError:
     yaml = None
 
-if TYPE_CHECKING:  # made on first use, see QuickView._view()
-    from .memmapview import MemMapView
-    from .plotview import PlotView
-    from .stepview import StepView
+# # from . import archive, cubemx, graphview, ltspice, mdnotes, mdrender, memmap, notebook, pdftools, remote, step, stl, tabular
+from . import remote, tabular
+# Imported lazily:
+# archive, cubemx, graphview, ltspice, mdnotes, mdrender, memmap, notebook, pdftools, step, stl
+# Heavy modules imported lazily
+from . import mdrender, mdnotes, remote, tabular
 
 TEXT_LIMIT = 256 * 1024
 _IMAGE_FORMATS: set[bytes] = set()
@@ -362,8 +364,9 @@ class MarkdownView(QTextBrowser):
         self.token += 1
         super().clear()
 
-    def show_notebook(self, nb: notebook.Notebook, path: str | None) -> None:
+    def show_notebook(self, nb: "notebook.Notebook", path: str | None) -> None:
         """A Jupyter notebook: code cells shaded, outputs indented below them."""
+        from . import notebook
         self.token += 1
         self.note, self.images = path, nb.images
         self.document().setBaseUrl(QUrl.fromLocalFile(os.path.dirname(path) + "/") if path else QUrl())
@@ -656,17 +659,23 @@ class QuickView(QWidget):
             elif stl.is_stl(path):
                 self._stl(path, in_archive)
             elif ltspice.is_raw(path):
-                self._raw(path, in_archive)
+                from . import ltspice
+                self._raw(path, in_archive)  # not LTspice after all: _not_numeric shows hex
             elif PLOT["on"] and tabular.is_table(path):
-                self._plot(path, in_archive)
+                from . import ltspice
+                self._plot(path, in_archive)  # no numbers in it after all: _not_numeric shows the table
             elif notebook.is_notebook(path):
+                from . import notebook
                 self._notebook(path, in_archive)
             elif cubemx.is_ioc(path):
+                from . import cubemx
                 self._ioc(path, in_archive)
             elif path.lower().endswith(('.json', '.yaml', '.yml')):
+                from . import archive
                 self._json_yaml(path, in_archive)
             elif not self._try_image(path, in_archive):
                 self._text_or_info(path, in_archive)
+
         except OSError as e:
             self._info(f"Cannot read this file: {e.strerror or e}")
 
@@ -748,12 +757,14 @@ class QuickView(QWidget):
 
     def _raw(self, path: str, in_archive: bool) -> None:
         """An LTspice .raw file: its traces as a plot (an operating point as a table)."""
+        from . import ltspice
         source = archive.read(path, ARCHIVE_PLOT_LIMIT) if in_archive else path
         self.stack.setCurrentWidget(self._plot_page())
         self.plot.load(path, source, ltspice.read_raw)
 
     def _operating_point(self, path: str) -> bool:
         """An LTspice .op result (one point): its values as a table."""
+        from . import ltspice
         in_archive = archive.inside(path) is not None
         if in_archive:
             data = archive.read(path, TEXT_LIMIT)
@@ -812,6 +823,7 @@ class QuickView(QWidget):
 
     def _notebook(self, path: str, in_archive: bool) -> None:
         """A Jupyter notebook's cells and outputs; text if it is too big or not one."""
+        from . import notebook
         if in_archive:
             data = archive.read(path, NOTEBOOK_LIMIT)
         elif os.path.getsize(path) <= NOTEBOOK_LIMIT:
@@ -830,6 +842,7 @@ class QuickView(QWidget):
 
     def _ioc(self, path: str, in_archive: bool) -> None:
         """An STM32CubeMX project: chip, clocks, pins, peripherals."""
+        from . import cubemx
         if in_archive:
             data = archive.read(path, TEXT_LIMIT * 4)
         else:

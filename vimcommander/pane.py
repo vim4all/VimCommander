@@ -21,7 +21,9 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QFileIconProvide
                                QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
                                QTableView, QTabBar, QToolButton, QVBoxLayout, QWidget)
 
-from . import archive, remote, wsl
+# from . import archive, remote, wsl
+from . import remote, wsl
+# archive imported lazily
 from .grid import GridDelegate, ThumbLoader
 from .preview import QuickView
 
