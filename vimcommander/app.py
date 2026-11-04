@@ -36,7 +36,8 @@ from .pane import (DIR_SIZES, NATURAL, SORT_KEYS, Entry, Pane, Results, child_na
                    set_colors)
 from .results import Search, branch_paths, changed_files, find_paths, parse_find
 from .rename import CASES, check_names, format_name, increment, parse_substitute
-from .vim import NORMAL, VISUAL, Action, KeyEngine, parse_langmap, split_keys, user_bindings, TEXT_OBJECTS
+from .vim import (NORMAL, VISUAL, Action, KeyEngine, parse_langmap, split_keys, user_bindings,
+                     TEXT_OBJECTS)
 , TEXT_OBJECTS
 from .sizing import fit_window
 
