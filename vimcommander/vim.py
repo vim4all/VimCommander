@@ -49,9 +49,18 @@ MOTION_ARG_KEYS = {
 # the operator, before the motion, or both (2d3j = 6 rows). n/N, ; and , are
 # left out because yn / yf already mean "yank name" / "yank path". gU / gu / g~
 # change the case of the names (gUU, gU3j, g~G).
-OPERATORS = {"y": "yank", "d": "cut", "gU": "upper", "gu": "lower", "g~": "toggle_case"}
+OPERATORS = {"y": "yank", "d": "cut", "c": "change", "gU": "upper", "gu": "lower", "g~": "toggle_case"}
+
+# Text objects for operators: ciw, daw, etc.
+TEXT_OBJECTS = {
+    "iw": "inner_word", "aw": "a_word",
+    "is": "inner_stem", "as": "a_stem",
+    "ie": "inner_ext", "ae": "a_ext",
+}
+
 OPERATOR_MOTIONS = {k: v for k, v in MOTIONS.items()
                     if k not in ("n", "N", ";", ",", "zz", "zt", "zb", "<C-e>", "<C-y>")}
+OPERATOR_MOTIONS.update(TEXT_OBJECTS)
 
 NORMAL_KEYS = {
     **MOTIONS,
@@ -74,14 +83,15 @@ NORMAL_KEYS = {
     "<C-t>": "new_tab", "gt": "next_tab", "gT": "prev_tab", "gz": "zoxide_pick",
     "t": "tag", "<Space>": "tag", "T": "invert_tags", "+": "select_prompt",
     "v": "visual", "V": "visual", "gv": "reselect",
-    "yy": "yank", "Y": "yank", "dd": "cut", "p": "paste", ".": "repeat",
-    "yf": "yank_path", "yd": "yank_dir", "yn": "yank_name",
+    "yy": "yank", "Y": "yank", "dd": "cut", "cc": "change", "c": "change", "p": "paste", ".": "repeat",
+    "yf": "yank_path", "yd": "yank_dir", "yn": "yank_name", "yp": "yank_path",
+    "xo": "yank_path",  # extra aliases
     "<F3>": "view", "<F4>": "edit", "S": "shell",
     "<F5>": "copy_other", "<F6>": "move_other", "<A-F5>": "pack", "<A-F9>": "unpack", "gb": "branch",
     "<Del>": "trash", "<F8>": "trash", "<S-Del>": "delete", "u": "undo", "<C-r>": "redo",
     "<C-^>": "alternate", "ZZ": "quit", "ZQ": "quit", "<C-g>": "info", "gx": "open_system",
     "cw": "rename", "<F2>": "rename", "cW": "rename_stem",
-    "I": "rename_at:start", "A": "rename_at:end", "cc": "rename_at:clear", "C": "rename_at:stem",
+    "I": "rename_at:start", "A": "rename_at:end", "C": "rename_at:stem",
     "gUU": "upper", "gUgU": "upper", "guu": "lower", "gugu": "lower", "g~~": "toggle_case", "g~g~": "toggle_case",
     "<C-a>": "increment", "<C-x>": "decrement",  # the number in the name; g: 1, 2, 3... times
     "g<C-a>": "increment:g", "g<C-x>": "decrement:g",
@@ -102,8 +112,14 @@ NORMAL_KEYS = {
     ":": "command",
     "<F1>": "help",
     "<Esc>": "escape", "<C-c>": "escape",
+    "x": "delete_char", "X": "delete_char_back", "r": "replace_char", "~": "toggle_case_char",
+    "gp": "yank_path_clip", "gy": "yank_path_clip",
     **{f"g{i}": f"bar:{i}" for i in range(1, 10)},
 }
+NORMAL_KEYS.update({op + key: f"{name}_motion:{motion}"
+                    for op, name in OPERATORS.items()
+                    for key, motion in OPERATOR_MOTIONS.items()
+                    if op + key not in NORMAL_KEYS})
 NORMAL_KEYS.update({op + key: f"{name}_motion:{motion}"
                     for op, name in OPERATORS.items()
                     for key, motion in OPERATOR_MOTIONS.items()
@@ -114,6 +130,7 @@ NORMAL_ARG_KEYS = {
     "m": "set_mark", "'": "goto_mark", "`": "goto_mark",
     "@": "at",  # @a plays macro a, @@ the last one, @: repeats the last ':' command
     "q": "record",  # qa records a macro into a; q stops
+    "r": "replace_char",
 }
 
 VISUAL_KEYS = {
@@ -344,8 +361,9 @@ class KeyEngine:
             key = self.translate(key)
         if self._register_next:
             self._register_next = False
-            if len(key) == 1 and (key.isalnum() or key in '"+*'):
+            if len(key) == 1 and (key.isalnum() or key in '"+*_-'):
                 self.register = key
+                return None
             else:
                 self.reset()
             return None

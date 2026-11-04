@@ -270,6 +270,16 @@ class QuickViewTest(unittest.TestCase):
         QTest.keyClick(model, Qt.Key.Key_W)
         self.assertTrue(model.wire)
         model.grab()
+        if model.wireframe is not None:  # numpy: the six faces' edges, 4 each
+            self.assertEqual(len(model.wireframe), 24)
+        # measuring in the wireframe still snaps to corners (from the home view: in the
+        # front view, corners behind each other share a pixel)
+        model.points = []
+        model.home()
+        model.grab()
+        x, y, _depth = model._project((2.0, 3.0, 1.0))
+        model.measure(QPointF(x + 2, y + 2))
+        self.assertEqual(model.points, [((2.0, 3.0, 1.0), "corner")])
         QTest.keyClick(model, Qt.Key.Key_Escape)  # first clears the measurement
         self.assertEqual((model.points, left), ([], []))
         QTest.keyClick(model, Qt.Key.Key_Escape)

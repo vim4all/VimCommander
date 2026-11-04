@@ -10,20 +10,32 @@ the keys (`focus_keys()`): h j k l rotate, H J K L pan, + - zoom, 0-6 views,
 w wireframe; Esc, q or Tab give them back (`leave`).
 
 While the view moves only the biggest pieces are drawn, as many as fit in a
-frame; the whole model is drawn once it stops. Reading runs in a thread;
-results carry a token, so a stale one is dropped, and a stop Event ends a
-reading nobody waits for.
+frame; the whole model is drawn once it stops. With numpy, the wireframe (w)
+is wireframe.py's: every edge projected per frame at once, sub-pixel segments
+merged; a model too big to shade while moving shows that wireframe until it
+stops. Flat faces and outlines are drawn through a QTransform from polygons
+made once in their plane (shapes_at, filled a time slice per frame). Reading
+runs in a thread; results carry a token, so a stale one is dropped, and a stop
+Event ends a reading nobody waits for.
 """
 
+import gc
 import math
 import threading
 import time
+from bisect import bisect_right
 
-from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QFontMetricsF, QPainter, QPainterPath, QPalette, QPen, QPolygonF
+from PySide6.QtCore import QByteArray, QDataStream, QEvent, QObject, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QColor, QFontMetricsF, QPainter, QPainterPath, QPalette, QPen, QPolygonF, QTransform
 from PySide6.QtWidgets import QWidget
+import shiboken6
 
 from . import step
+
+try:  # numpy projects and culls every edge of a model per frame (wireframe.py)
+    from . import wireframe
+except ImportError:
+    wireframe = None
 
 FRAME_TIME = 0.04  # seconds a moving frame may take
 STILL_TIME = 0.8  # seconds the still picture may take; smaller pieces are left out
@@ -37,11 +49,134 @@ VIEWS = {  # key: (yaw, pitch)
 VIEW_NAMES = {"0": "", "1": "front", "2": "back", "3": "right", "4": "left", "5": "top", "6": "bottom"}
 STEP_ANGLE = math.radians(15)  # per h j k l
 SNAP = 12  # pixels from a corner or a circle's centre that snap to it
+EDGE_PIXELS = 4.0  # edges and outlines smaller than this on screen are left out
+FILL_PIXELS = 0.6  # filled pieces smaller than this are left out
+THIN_PIXELS = 1.5  # an outline's segments shorter than this on screen are merged (see shapes_at)
+THIN_LEVELS = 10  # thinning levels: tolerance doubling from the model's size / 8000
 KEYS_HINT = "h j k l rotate · H J K L pan · + - zoom · 0-6 views · w wireframe · click = measure · Esc = back"
 
 
 class _Loader(QObject):
     done = Signal(int, object, object, str)  # token, step.Model or None, its items, error
+
+
+def thin(loop: list, tol: float) -> list:
+    """`loop` without the points closer than `tol` to the last one kept (the
+    first and last always stay): a circle seen small needs few points."""
+    if len(loop) <= 4:
+        return loop
+    last = loop[0]
+    out = [last]
+    append = out.append
+    for q in loop[1:-1]:
+        if math.dist(q, last) >= tol:
+            append(q)
+            last = q
+    append(loop[-1])
+    return out
+
+
+def _sub(a, b):
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+
+def _dot(a, b):
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _cross(a, b):
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def _unit(a):
+    n = math.sqrt(_dot(a, a))
+    return (a[0] / n, a[1] / n, a[2] / n) if n > 0 else None
+
+
+def plane_axes(normal):
+    """Two unit vectors spanning the plane with this normal."""
+    n = _unit(normal)
+    if n is None:
+        return None
+    helper = (1.0, 0.0, 0.0) if abs(n[0]) < 0.9 else (0.0, 1.0, 0.0)
+    e1 = _unit(_cross(n, helper))
+    return e1, _cross(n, e1)
+
+
+def flat(loops, origin, e1, e2) -> list:
+    """The loops as 2D polygons in the plane (origin, e1, e2); drawn through a QTransform."""
+    ox, oy, oz = origin
+    a, b, c = e1
+    d, e, f = e2
+    return [QPolygonF([QPointF(a * (x - ox) + b * (y - oy) + c * (z - oz), d * (x - ox) + e * (y - oy) + f * (z - oz))
+                       for x, y, z in lp]) for lp in loops]
+
+
+def planar_runs(loop: list, eps: float) -> list:
+    """`loop` split into runs that each lie in one plane (a circle, an arc, a line…),
+    as (origin, e1, e2, points); neighbouring runs share their end point."""
+    runs = []
+    n = len(loop)
+    i = 0
+    while i < n - 1:
+        o = loop[i]
+        d1 = None  # the run's first direction
+        normal = None
+        j = i + 1
+        while j < n:
+            q = _sub(loop[j], o)
+            if d1 is None:
+                if _dot(q, q) > eps * eps:
+                    d1 = q
+            elif normal is None:
+                c = _cross(d1, q)
+                if math.sqrt(_dot(c, c)) > eps * math.sqrt(_dot(d1, d1)):  # off the line so far
+                    normal = _unit(c)
+            elif abs(_dot(q, normal)) > eps:
+                break
+            j += 1
+        if normal is None:  # a straight run (or one point): any plane through it
+            d = _unit(d1) if d1 else (1.0, 0.0, 0.0)
+            normal = _cross(d, (0.0, 0.0, 1.0) if abs(d[2]) < 0.9 else (1.0, 0.0, 0.0))
+        axes = plane_axes(normal) or ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0))
+        runs.append((o, axes[0], axes[1], loop[i:j]))
+        if j >= n:
+            break
+        i = j - 1
+    return runs
+
+
+def shapes_at(it, level: int, base: float):
+    """An item's drawing at a thinning level, made on first use and cached in the
+    item (only the few thousand pieces big enough to draw ever need one):
+    ([(origin, e1, e2, [QPolygonF…])…], None) to draw through a QTransform — a
+    plane face is one shape (its outline and holes), an outline is split into
+    planar runs (circles, arcs, lines) — or (None, loops) for a face that isn't flat."""
+    cache = it[8]
+    got = cache.get(level)
+    if got is not None:
+        return got
+    loops, kind, normal = it[0], it[5], it[3]
+    if level:
+        loops = [thin(lp, base * 2 ** (level - 1)) for lp in loops]
+    eps = base * 0.05
+    got = None, loops
+    if kind == 0:
+        n = _unit(normal) if normal else None
+        axes = plane_axes(normal) if n else None
+        o = loops[0][0]
+        if n and axes and all(abs(_dot(_sub(q, o), n)) <= eps for lp in loops for q in lp):
+            got = [(o, axes[0], axes[1], flat(loops, o, *axes))], None
+    else:
+        got = [(o, e1, e2, flat([run], o, e1, e2))
+               for lp in loops for o, e1, e2, run in planar_runs(lp, eps)], None
+    cache[level] = got
+    return got
+
+
+def thin_base(model: step.Model) -> float:
+    lo, hi = model.bounds or ((0, 0, 0), (1, 1, 1))
+    return (math.dist(lo, hi) or 1.0) / 8000
 
 
 def prepare(model: step.Model) -> list:
@@ -57,9 +192,30 @@ def prepare(model: step.Model) -> list:
         size = math.dist((min(xs), min(ys), min(zs)), (max(xs), max(ys), max(zs)))
         kind = 0 if p.edges else 1 if p.fill else 2  # plane with edges, cell, outline
         part = part_of[i] if i < len(part_of) else 0
-        items.append((p.loops, c, size, p.normal, p.color, kind, p.marks, part))
+        # Cells are small quads, drawn point by point; faces and outlines get a
+        # cache of flat, simplified drawings (shapes_at).
+        cache = {} if kind != 1 and not model.mesh else None
+        items.append((p.loops, c, size, p.normal, p.color, kind, p.marks, part, cache))
     items.sort(key=lambda it: -it[2])
     return items
+
+
+def points_polygon(points) -> QPolygonF:
+    """An (n, 2) numpy array as a QPolygonF, copied in one go into its memory
+    (QPainter.drawPoints takes it as is; building QPointFs would take seconds)."""
+    import numpy as np
+    poly = QPolygonF()
+    poly.resize(len(points))
+    memory = shiboken6.VoidPtr(poly.data(), len(points) * 16, True)
+    np.frombuffer(memory, np.float64).reshape(-1, 2)[:] = points
+    return poly
+
+
+def line_color(rgb, light: bool) -> QColor:
+    """An edge in a piece's color: dark on a light background (or over a face), light on a dark one."""
+    if light:
+        return QColor.fromRgbF(rgb[0] * 0.35, rgb[1] * 0.35, rgb[2] * 0.35)
+    return QColor.fromRgbF(0.45 + rgb[0] * 0.5, 0.45 + rgb[1] * 0.5, 0.45 + rgb[2] * 0.5)
 
 
 class StepView(QWidget):
@@ -72,7 +228,12 @@ class StepView(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.TabFocus)  # only zv gives it the keys, not a click
         self.setMouseTracking(True)
         self.model: step.Model | None = None
-        self.items: list = []  # (loops, centre, size, normal, rgb, kind, marks, part), biggest first
+        self.items: list = []  # (loops, centre, size, normal, rgb, kind, marks, part, drawing cache), biggest first
+        self.edge_items: list = []  # the items a wireframe draws (no surface cells), biggest first
+        self._thin_base = 1.0  # model units of the finest thinned copy (thin_base)
+        self.wireframe = None  # wireframe.Wireframe of the model's edges (with numpy)
+        self.wire_cutoff = EDGE_PIXELS  # moving frames: pieces smaller (px) leave their edges out
+        self._neg_sizes: list[float] = []
         self.message = ""
         self.token = 0
         self._stop = threading.Event()
@@ -87,8 +248,8 @@ class StepView(QWidget):
         self._press: QPointF | None = None
         self._dragged = False
         self.moving = False
-        self.per_item = 2e-5  # seconds one piece takes to draw, measured
-        self._drawn: list = []  # (polygons, item, screen x, y, reach) in drawing order, for picking
+        self.per_item = 4e-5  # seconds one piece takes to draw, measured
+        self._drawn: list = []  # (polygons, item, screen x, y, reach, QTransform or None) in drawing order
         self._settle = QTimer(self, singleShot=True, interval=180)
         self._settle.timeout.connect(self._still)
         self._hover_at: QPointF | None = None
@@ -122,7 +283,10 @@ class StepView(QWidget):
                     result, error = None, ""  # another kind of file
                 else:
                     error = "" if result.pieces else "no faces in this file"
-                    items = prepare(result) if result.pieces else None
+                    if result.pieces:
+                        drawn = prepare(result)
+                        wire = wireframe.Wireframe(drawn, result.mesh) if wireframe else None
+                        items = drawn, wire
             except step.Stopped:
                 return
             except Exception as e:  # always answer, or the view would say "Reading…" for good
@@ -136,7 +300,8 @@ class StepView(QWidget):
         self.token += 1
         self._stop.set()
         self._stop = threading.Event()
-        self.model, self.items, self._drawn = None, [], []
+        self.model, self.items, self.edge_items, self._drawn = None, [], [], []
+        self.wireframe, self._neg_sizes = None, []
         self.points, self.snap, self.hover_label = [], None, ""
         if self.hasFocus():
             self.leave.emit()
@@ -152,7 +317,13 @@ class StepView(QWidget):
             self.update()
             return
         self.model, self.message = result, ""
-        self.items = items
+        self.items, self.wireframe = items
+        # A big model is millions of small objects: a full garbage collection would
+        # walk them all (over a second, at random moments). They hold no cycles.
+        gc.freeze()
+        self.edge_items = self.items if result.mesh else [it for it in self.items if it[5] != 1]
+        self._neg_sizes = [-it[2] for it in self.items]  # rising: bisect counts pieces above a size
+        self._thin_base = thin_base(result)
         self.home()
         lo, hi = result.bounds
         dims = " × ".join(f"{hi[k] - lo[k]:.4g}" for k in range(3)) + (f" {result.unit}" if result.unit else "")
@@ -229,71 +400,70 @@ class StepView(QWidget):
         ox = self.width() / 2 + self.pan.x() - s * (a0 * c[0] + a1 * c[1] + a2 * c[2])
         oy = self.height() / 2 + self.pan.y() + s * (b0 * c[0] + b1 * c[1] + b2 * c[2])
         a0, a1, a2, b0, b1, b2 = s * a0, s * a1, s * a2, -s * b0, -s * b1, -s * b2
-        budget = (FRAME_TIME if self.moving else STILL_TIME) / max(self.per_item, 1e-7)
+        allowed = FRAME_TIME if self.moving else STILL_TIME
+        budget = allowed / max(self.per_item, 1e-7)
         w, h = self.width(), self.height()
-        wire = self.wire
-        skip_cells = wire and not self.model.mesh  # wireframe: edges only; a mesh's are its triangles
-        chosen = []
-        for it in self.items:
+        # Wireframe-only mode as requested.
+        wire = True
+        light = pal.color(QPalette.ColorRole.Base).lightnessF() >= 0.5
+        # Wireframe: edges and outlines only (a mesh's edges are its triangles).
+        source = self.edge_items
+        smallest = EDGE_PIXELS
+        # The simplified copy of each outline whose merged segments stay under THIN_PIXELS.
+        base = self._thin_base
+        level = min(THIN_LEVELS, max(0, int(math.floor(math.log2(max(THIN_PIXELS / (base * s), 1e-9)))) + 1))
+        # Flat drawings are made in up to half of the frame's time, out of its budget;
+        # a still picture repaints until all are made.
+        filling = 0.0
+        unfinished = False
+        chosen = []  # with the numpy wireframe: only for picking (measuring snaps to them)
+        for it in source:
             if len(chosen) >= budget:
                 break
             size = it[2] * s
-            if size < 0.6:
-                break  # sorted by size: the rest are smaller than a pixel
-            if skip_cells and it[5] == 1:
-                continue
+            if size < smallest:
+                break  # sorted by size: the rest are smaller still
+            if it[5] == 2 and size < EDGE_PIXELS:
+                continue  # an outline a pixel or two long: lost in its face anyway
             x, y, z = it[1]
             sx, sy = ox + a0 * x + a1 * y + a2 * z, oy + b0 * x + b1 * y + b2 * z
             if sx < -size or sy < -size or sx > w + size or sy > h + size:
                 continue
             chosen.append((d0 * x + d1 * y + d2 * z, it, sx, sy, size))
-        chosen.sort(key=lambda e: e[0])
-        lx, ly, lz = LIGHT
-        ll = math.sqrt(lx * lx + ly * ly + lz * lz)
-        lx, ly, lz = lx / ll, ly / ll, lz / ll
-        no_brush = Qt.BrushStyle.NoBrush
-        drawn = []
-        start = time.perf_counter()
-        for _depth, it, sx, sy, reach in chosen:
-            loops, _c, _size, normal, rgb, kind = it[:6]
-            polys = [QPolygonF([QPointF(ox + a0 * x + a1 * y + a2 * z, oy + b0 * x + b1 * y + b2 * z)
-                                for x, y, z in lp]) for lp in loops]
-            drawn.append((polys, it, sx, sy, reach))
-            if kind == 2 or wire:
-                p.setPen(QPen(QColor.fromRgbF(rgb[0] * 0.35, rgb[1] * 0.35, rgb[2] * 0.35), 0))
-                p.setBrush(no_brush)
-                for poly in polys:
-                    if kind == 2:
-                        p.drawPolyline(poly)
-                    else:
-                        p.drawPolygon(poly)
-                continue
-            nx, ny, nz = normal
-            light = abs(lx * (ra[0] * nx + ra[1] * ny + ra[2] * nz) + ly * (rb[0] * nx + rb[1] * ny + rb[2] * nz)
-                        + lz * (rd[0] * nx + rd[1] * ny + rd[2] * nz))
-            f = 0.28 + 0.72 * light
-            fill = QColor.fromRgbF(min(1.0, rgb[0] * f), min(1.0, rgb[1] * f), min(1.0, rgb[2] * f))
-            p.setBrush(QBrush(fill))
-            if kind == 0:
-                p.setPen(QPen(QColor.fromRgbF(rgb[0] * 0.35, rgb[1] * 0.35, rgb[2] * 0.35), 0))
-            else:
-                p.setPen(QPen(fill, 0))  # closes the hairline gaps between cells
-            if len(polys) == 1:
-                p.drawPolygon(polys[0])
-            else:  # a face with holes
-                path = QPainterPath()
-                path.setFillRule(Qt.FillRule.OddEvenFill)
-                for poly in polys:
-                    path.addPolygon(poly)
-                    path.closeSubpath()
-                p.drawPath(path)
-        self._drawn = drawn
-        if chosen:
-            spent = time.perf_counter() - start
-            self.per_item = 0.7 * self.per_item + 0.3 * spent / len(chosen)
+        
+        # Always use fast wireframe for performance
+        self.wire = True
+        started = time.perf_counter()
+        self._draw_wireframe(p, (a0, a1, a2), (b0, b1, b2), ox, oy, s, light,
+                             self.wire_cutoff if self.moving else EDGE_PIXELS)
+        if self.moving:  # keep moving frames near FRAME_TIME: leave out more small pieces, or fewer
+            spent = time.perf_counter() - started
+            if spent > 1.25 * FRAME_TIME:
+                self.wire_cutoff = min(self.wire_cutoff * 1.4, 16.0)
+            elif spent < 0.6 * FRAME_TIME:
+                self.wire_cutoff = max(self.wire_cutoff / 1.4, EDGE_PIXELS)
+        self._drawn = [([], it, sx, sy, reach, None) for _d, it, sx, sy, reach in chosen]  # for picking
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         self._axes(p, ra, rb)
         self._overlay(p)
+        return
+
+    def _draw_wireframe(self, p: QPainter, ax, ay, ox: float, oy: float, s: float, light: bool,
+                        cutoff: float) -> None:
+        """Every edge of pieces at least `cutoff` pixels big at once (wireframe.py):
+        a path and a set of points per color."""
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        for rgb, lines, points in self.wireframe.frame(ax, ay, ox, oy, self.width(), self.height(),
+                                                       cutoff / s):
+            p.setPen(QPen(line_color(rgb, light), 0))
+            if len(lines):
+                path = QPainterPath()
+                stream = QDataStream(QByteArray(wireframe.path_bytes(lines)))
+                stream.setByteOrder(QDataStream.ByteOrder.LittleEndian)
+                stream >> path
+                p.drawPath(path)
+            if len(points):
+                p.drawPoints(points_polygon(points))
 
     def _axes(self, p: QPainter, ra, rb) -> None:
         """A small x / y / z cross in the bottom left corner."""
@@ -367,17 +537,29 @@ class StepView(QWidget):
     def _piece_at(self, pos: QPointF):
         """The front-most drawn face under `pos`, or None."""
         fill = Qt.FillRule.OddEvenFill
-        if self.wire:
+        if not self._drawn:
             return None
         px, py = pos.x(), pos.y()
-        for polys, it, sx, sy, reach in reversed(self._drawn):
+        for polys, it, sx, sy, reach, transform in reversed(self._drawn):
+            if not polys:
+                continue
             if abs(px - sx) > reach or abs(py - sy) > reach or it[5] == 2:
                 continue  # every point of a piece is within its size of its centre
-            if not polys[0].boundingRect().contains(pos):
+
+            if not polys:
                 continue
-            inside = sum(1 for poly in polys if poly.containsPoint(pos, fill)) % 2
-            if inside:
-                return it
+            if transform is not None:  # a flat face's polygons are in its plane
+                polys = [transform.map(poly) for poly in polys]
+            if not polys or polys[0].isEmpty():
+                continue
+            try:
+                if not polys[0].boundingRect().contains(pos):
+                    continue
+                inside = sum(1 for poly in polys if poly.containsPoint(pos, fill)) % 2
+                if inside:
+                    return it
+            except Exception:
+                continue
         return None
 
     def _surface_point(self, it, pos: QPointF):
@@ -406,7 +588,7 @@ class StepView(QWidget):
         best, best_d = None, SNAP
         px, py = pos.x(), pos.y()
         mesh = self.model.mesh
-        for _polys, it, sx, sy, reach in self._drawn:
+        for _polys, it, sx, sy, reach, _transform in self._drawn:
             if abs(px - sx) > reach + SNAP or abs(py - sy) > reach + SNAP:
                 continue
             candidates = [(q, "centre") for q in it[6]]
@@ -428,7 +610,9 @@ class StepView(QWidget):
             return
         pos = self._hover_at
         it = self._piece_at(pos)
-        label = self.model.labels[it[7]] if it and it[7] < len(self.model.labels) else ""
+        label = ""
+        if it and len(it) > 7 and self.model.labels and it[7] < len(self.model.labels):
+            label = self.model.labels[it[7]]
         snap = self._pick(pos)
         if label != self.hover_label or snap != self.snap:
             self.hover_label, self.snap = label, snap

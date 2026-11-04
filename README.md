@@ -104,7 +104,7 @@ The screenshots show a made-up home folder; `tools/screenshots.py` makes it and 
 
 **Windows, ready to run**: download `VimCommander-*-windows-x64.zip` from the [latest release](https://github.com/vim4all/VimCommander/releases/latest), unzip it anywhere and start `VimCommander.exe`. No Python needed. The settings are kept in `config.json` next to the exe (portable). Windows SmartScreen may warn the first time, because the exe isn't signed: *More info* → *Run anyway*.
 
-**From source** you need **Python 3.10 or newer**. The dependencies are [PySide6](https://doc.qt.io/qtforpython-6/) (Qt for Python, about 200–300 MB installed), [paramiko](https://www.paramiko.org/) for [SSH folders](#ssh-folders) and [segno](https://segno.readthedocs.io/) for the QR code of [`:share`](#share-with-a-phone). The [music player](#music-player) uses QtMultimedia from `PySide6-Addons` (in requirements.txt; without it everything else still works).
+**From source** you need **Python 3.10 or newer**. The dependencies are [PySide6](https://doc.qt.io/qtforpython-6/) (Qt for Python, about 200–300 MB installed), [paramiko](https://www.paramiko.org/) for [SSH folders](#ssh-folders) [segno](https://segno.readthedocs.io/) for the QR code of [`:share`](#share-with-a-phone) and [numpy](https://numpy.org/) for a fast wireframe of big [3D models](#3d-models) (optional). The [music player](#music-player) uses QtMultimedia from `PySide6-Addons` (in requirements.txt; without it everything else still works).
 
 **Linux / macOS**
 
@@ -265,6 +265,8 @@ Tagged items are highlighted. File operations act on the tagged items, or on the
 | `cW` | rename with only the name selected, so the extension stays |
 | `I` / `A` | rename with the cursor at the start / end of the name, like vim's insert keys |
 | `cc` / `C` | rename, typing a new name / a new name before the extension (`C` keeps `.jpg`) |
+| `ciw`/`caw`/`cis`/`cas`/`cie`/`cae` | change inner/a word/stem/extension |
+| `w`/`b`/`e` | move word-wise in the rename line |
 | `gUU` / `guu` / `g~~` | the name in UPPER / lower / switched case; with a motion: `gUj`, `gu3j`, `g~G`; `U` / `u` / `~` in visual mode. `.` repeats, `u` undoes |
 | `Ctrl-a` / `Ctrl-x` | add / subtract 1 to the last number in the name of the tagged items or the one under the cursor, like vim (`5 Ctrl-a` adds 5): `img_0099.jpg` → `img_0100.jpg`, `v10` → `v9`. Leading zeros keep the width; it stops at 0. Works in visual mode, `.` repeats, `u` undoes |
 | `g Ctrl-a` / `g Ctrl-x` | the same, but the first item gets 1, the second 2, the third 3… (vim's `g Ctrl-a`): tag `shot_0.png` ×5 for `shot_1` … `shot_5` |
@@ -791,7 +793,7 @@ Quick view (`Ctrl-q`) of a STEP file (`.step`, `.stp`) shows the model, shaded, 
   | `c` | clear the measurement |
   | `Esc`, `q`, `Tab` | back to the file pane (`Esc` first clears a measurement) |
 - Plane, cylinder, cone, sphere and torus faces are shaded; a B-spline face is shaded when it is a whole patch (a fillet), otherwise only its outline is drawn. It is a preview, not a CAD kernel: complex trimmed surfaces can show as wireframe, and where pieces overlap the drawing order can be slightly off.
-- Big models (a 20 MB board) take a few seconds to read, in the background. While the view moves, only the biggest pieces are drawn; the whole model once it stops. Models over 256 MB show as text, and a SystemTap `.stp` script shows as text too.
+- Big models take a while to read, in the background (a 60 MB board about half a minute). With [numpy](https://numpy.org/) installed (it is in requirements.txt), the wireframe (`w`) draws every edge of even a whole board at once, smoothly while it moves, and a model too big to shade while moving shows that wireframe until it stops; edges of parts only a pixel or two big are left out. Without numpy, only the biggest pieces are drawn while the view moves. The shaded picture fills in over a few moments when it stops. Models over 256 MB show as text, and a SystemTap `.stp` script shows as text too.
 
 STEP and STL files inside zips show as well. A Windows certificate trust list (also `.stl`) shows in hex.
 

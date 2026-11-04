@@ -4,4 +4,5 @@ segno>=1.5
 paramiko>=3.0
 pypdfium2>=4.30
 pyte>=0.8
+numpy>=1.24  # fast wireframe of big 3D models (optional)
 pywinpty>=2.0; sys_platform == "win32"
