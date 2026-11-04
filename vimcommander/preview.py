@@ -7,6 +7,7 @@ Jupyter notebooks show their cells and outputs, STM32CubeMX projects their pins 
 """
 
 import html
+import json
 import os
 import queue
 import shutil
@@ -18,9 +19,13 @@ from PySide6.QtCore import QByteArray, QObject, QSize, QStandardPaths, Qt, QTime
 from PySide6.QtGui import (QDesktopServices, QFontDatabase, QImage, QImageIOHandler, QImageReader, QPalette, QPixmap, QTextCursor,
                            QTextDocument, QTextFormat)
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QLabel, QPlainTextEdit, QScrollArea, QSizePolicy,
-                               QStackedWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
+                               QStackedWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QTreeWidget,
+                               QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from . import archive, cubemx, graphview, ltspice, mdnotes, mdrender, memmap, notebook, pdftools, remote, step, stl, tabular
+try:
+    import yaml
+except ImportError:
+    yaml = None
 
 if TYPE_CHECKING:  # made on first use, see QuickView._view()
     from .memmapview import MemMapView
@@ -462,6 +467,44 @@ class CsvView(QTableWidget):
             self.setColumnWidth(c, min(self.columnWidth(c), 300))
 
 
+class JsonTreeView(QTreeWidget):
+    """Collapsible tree view for JSON and YAML."""
+    
+    def __init__(self):
+        super().__init__()
+        self.setHeaderHidden(True)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setAlternatingRowColors(True)
+        self.setAnimated(True)
+    
+    def show_data(self, data, title=""):
+        self.clear()
+        def add_item(parent, key, value):
+            if isinstance(value, dict):
+                item = QTreeWidgetItem(parent, [f"{key}: {{}}"])
+                item.setExpanded(False)
+                for k, v in value.items():
+                    add_item(item, k, v)
+            elif isinstance(value, list):
+                item = QTreeWidgetItem(parent, [f"{key}: [{len(value)}]"])
+                item.setExpanded(False)
+                for i, v in enumerate(value):
+                    add_item(item, str(i), v)
+            else:
+                val_str = json.dumps(value) if not isinstance(value, str) else f'"{value}"'
+                QTreeWidgetItem(parent, [f"{key}: {val_str}"])
+        
+        if isinstance(data, dict):
+            for k, v in data.items():
+                add_item(self.invisibleRootItem(), k, v)
+        elif isinstance(data, list):
+            for i, v in enumerate(data):
+                add_item(self.invisibleRootItem(), str(i), v)
+        else:
+            add_item(self.invisibleRootItem(), "value", data)
+        self.expandToDepth(0)
+
+
 class QuickView(QWidget):
     model_leave = Signal()  # the 3D view gives back the keys (Esc)
 
@@ -485,6 +528,8 @@ class QuickView(QWidget):
         self.markdown = MarkdownView()
         self.pdf = PdfView()
         self.csv = CsvView()
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(["Key", "Value"])
         # The memory map, plot and 3D views are made on first use (_view): each
         # pane has two quick views, and these widgets and their modules slowed startup.
         self._memmap_view = self._plot_view = self._model3d_view = None
@@ -493,7 +538,7 @@ class QuickView(QWidget):
             f"{os.path.basename(self.current or '')}   {text}"))
         self.show_hidden = False  # set by the main window, for the graph's scan
         self.stack = QStackedWidget()
-        for w in (self.text, self.image, self.info, self.graph, self.markdown, self.pdf, self.csv):
+        for w in (self.text, self.image, self.info, self.graph, self.markdown, self.pdf, self.csv, self.tree):
             self.stack.addWidget(w)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -566,6 +611,7 @@ class QuickView(QWidget):
         self._stop_views()
         self.markdown.clear()
         self.csv.clear()
+        self.tree.clear()
 
     def show_path(self, path: str | None, is_dir: bool = False) -> None:
         if path == self.current:
@@ -604,23 +650,74 @@ class QuickView(QWidget):
                 self._pdf(path, in_archive)
             elif memmap.is_candidate(path) and not in_archive:
                 self.stack.setCurrentWidget(self.memmap)
-                self.memmap.load(path)  # not a linker map / ELF after all: _not_a_map shows text
+                self.memmap.load(path)
             elif step.is_step(path):
                 self._step(path, in_archive)
             elif stl.is_stl(path):
                 self._stl(path, in_archive)
             elif ltspice.is_raw(path):
-                self._raw(path, in_archive)  # not LTspice after all: _not_numeric shows hex
+                self._raw(path, in_archive)
             elif PLOT["on"] and tabular.is_table(path):
-                self._plot(path, in_archive)  # no numbers in it after all: _not_numeric shows the table
+                self._plot(path, in_archive)
             elif notebook.is_notebook(path):
                 self._notebook(path, in_archive)
             elif cubemx.is_ioc(path):
                 self._ioc(path, in_archive)
+            elif path.lower().endswith(('.json', '.yaml', '.yml')):
+                self._json_yaml(path, in_archive)
             elif not self._try_image(path, in_archive):
                 self._text_or_info(path, in_archive)
         except OSError as e:
             self._info(f"Cannot read this file: {e.strerror or e}")
+
+    def _json_yaml(self, path: str, in_archive: bool) -> None:
+        """JSON or YAML as a collapsible tree."""
+        if in_archive:
+            data = archive.read(path, NOTEBOOK_LIMIT)
+        else:
+            with open(path, "rb") as f:
+                data = f.read(NOTEBOOK_LIMIT)
+        
+        try:
+            if path.lower().endswith('.json'):
+                obj = json.loads(data)
+            else:
+                if yaml:
+                    obj = yaml.safe_load(data)
+                else:
+                    self._text_or_info(path, in_archive)
+                    return
+        except Exception:
+            self._text_or_info(path, in_archive)
+            return
+
+        self._show_tree(obj)
+
+    def _show_tree(self, obj):
+        self.tree.clear()
+        def add_item(parent, key, value):
+            if isinstance(value, dict):
+                item = QTreeWidgetItem(parent, [key, f"{{{len(value)} items}}"])
+                for k, v in value.items():
+                    add_item(item, k, v)
+            elif isinstance(value, list):
+                item = QTreeWidgetItem(parent, [key, f"[{len(value)} items]"])
+                for i, v in enumerate(value):
+                    add_item(item, str(i), v)
+            else:
+                QTreeWidgetItem(parent, [key, str(value)])
+        
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                add_item(self.tree.invisibleRootItem(), k, v)
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj):
+                add_item(self.tree.invisibleRootItem(), str(i), v)
+        else:
+            add_item(self.tree.invisibleRootItem(), "value", obj)
+        
+        self.tree.expandToDepth(1)
+        self.stack.setCurrentWidget(self.tree)
 
     def scroll_pages(self, pages: int) -> None:
         widget = self.stack.currentWidget()
