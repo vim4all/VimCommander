@@ -172,6 +172,15 @@ SORT_KEYS = {
 }
 
 
+# Precomputed for DirModel.flags(), which runs for every visible cell on every
+# repaint: combining Qt enums in Python is slow. Keyed by (drag, drop).
+_PLAIN_FLAGS = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+_ITEM_FLAGS = {(drag, drop): _PLAIN_FLAGS
+               | (Qt.ItemFlag.ItemIsDragEnabled if drag else Qt.ItemFlag.NoItemFlags)
+               | (Qt.ItemFlag.ItemIsDropEnabled if drop else Qt.ItemFlag.NoItemFlags)
+               for drag in (False, True) for drop in (False, True)}
+
+
 class DirModel(QAbstractTableModel):
     COLUMNS = ("Name", "Size", "Modified")
 
@@ -387,15 +396,11 @@ class DirModel(QAbstractTableModel):
         return self._icon_cache[key]
 
     def flags(self, index):
-        f = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
-        e = self.entries[index.row()]
         if self.in_archive:
-            return f
-        if not e.is_parent and not self.remote:  # other apps can't read sftp:// files
-            f |= Qt.ItemFlag.ItemIsDragEnabled
-        if e.is_dir:
-            f |= Qt.ItemFlag.ItemIsDropEnabled
-        return f
+            return _PLAIN_FLAGS
+        e = self.entries[index.row()]
+        # other apps can't read sftp:// files
+        return _ITEM_FLAGS[(e.name != ".." and not self.remote, e.is_dir)]
 
     def mimeTypes(self):
         return ["text/uri-list"]
@@ -412,6 +417,32 @@ class DirModel(QAbstractTableModel):
 
     def supportedDropActions(self):
         return Qt.DropAction.CopyAction | Qt.DropAction.MoveAction
+
+
+def tagged_rows(selection_model) -> set[int]:
+    """The selected rows, read from the selection's ranges: selectedRows() checks
+    every cell and calls flags() for each, which took ~1 s with thousands of tags."""
+    rows: set[int] = set()
+    for r in selection_model.selection():
+        rows.update(range(r.top(), r.bottom() + 1))
+    return rows
+
+
+def select_rows(selection_model, model, rows) -> None:
+    """Add `rows` to the selection in one call, contiguous rows as one range."""
+    selection = QItemSelection()
+    last = model.columnCount() - 1
+    start = prev = -2
+    for row in sorted(rows):
+        if row != prev + 1:
+            if start >= 0:
+                selection.select(model.index(start, 0), model.index(prev, last))
+            start = row
+        prev = row
+    if start >= 0:
+        selection.select(model.index(start, 0), model.index(prev, last))
+    if not selection.isEmpty():
+        selection_model.select(selection, QItemSelectionModel.SelectionFlag.Select)
 
 
 def child_name(parent: str, path: str) -> str | None:
@@ -517,7 +548,7 @@ class ViewBehavior:
         """Drag the tagged items if the cursor is on one of them, else the cursor's item."""
         model = self.model()
         current = self.currentIndex().row()
-        rows = {i.row() for i in self.selectionModel().selectedRows()}
+        rows = tagged_rows(self.selectionModel())
         if current not in rows:
             rows = {current}
         indexes = [model.index(r, 0) for r in sorted(rows) if r >= 0
@@ -685,7 +716,13 @@ class FileView(ViewBehavior, QTableView):
             rows = [r for r in (previous.row(), current.row()) if 0 <= r < len(model.entries)]
             if rows:
                 model.headerDataChanged.emit(Qt.Orientation.Vertical, min(rows), max(rows))
-        self.viewport().update()
+        # Repaint only the two rows the cursor bar left and reached (all columns):
+        # repainting the whole list on every j was most of a key press's cost.
+        viewport = self.viewport()
+        for index in (previous, current):
+            if index.isValid():
+                rect = self.visualRect(index)
+                viewport.update(QRect(0, rect.top(), viewport.width(), rect.height()))
         self.cursor_moved.emit()
 
 
@@ -1472,12 +1509,9 @@ class Pane(QWidget):
             self.cd(parent)
             return
         self.cd(self.path, current.name if current else None, record=False)
-        sel = self.view.selectionModel()
-        for name in tagged:
-            row = self.model.row_of(name)
-            if row >= 0:
-                sel.select(self.model.index(row, 0), QItemSelectionModel.SelectionFlag.Select
-                           | QItemSelectionModel.SelectionFlag.Rows)
+        if tagged:
+            select_rows(self.view.selectionModel(), self.model,
+                        (i for i, e in enumerate(self.model.entries) if e.name in tagged))
 
     @staticmethod
     def _exists(path: str) -> bool:
@@ -1514,8 +1548,9 @@ class Pane(QWidget):
         return self.model.entries[self.row]
 
     def selected_entries(self) -> list[Entry]:
-        rows = sorted({i.row() for i in self.view.selectionModel().selectedRows()})
-        return [self.model.entries[r] for r in rows if not self.model.entries[r].is_parent]
+        entries = self.model.entries
+        rows = sorted(r for r in tagged_rows(self.view.selectionModel()) if r < len(entries))
+        return [entries[r] for r in rows if not entries[r].is_parent]
 
     def targets(self, count: int = 1) -> list[Entry]:
         """Tagged entries, or `count` entries starting at the cursor."""

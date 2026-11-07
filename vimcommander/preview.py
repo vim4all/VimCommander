@@ -11,20 +11,31 @@ import os
 import queue
 import shutil
 import threading
+from typing import TYPE_CHECKING
 from datetime import datetime
 
 from PySide6.QtCore import QByteArray, QObject, QSize, QStandardPaths, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import (QDesktopServices, QFontDatabase, QImage, QImageReader, QPalette, QPixmap, QTextCursor,
+from PySide6.QtGui import (QDesktopServices, QFontDatabase, QImage, QImageIOHandler, QImageReader, QPalette, QPixmap, QTextCursor,
                            QTextDocument, QTextFormat)
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QLabel, QPlainTextEdit, QScrollArea, QSizePolicy,
                                QStackedWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
 from . import archive, cubemx, graphview, ltspice, mdnotes, mdrender, memmap, notebook, pdftools, remote, step, stl, tabular
-from .memmapview import MemMapView
-from .plotview import PlotView
-from .stepview import StepView
+
+if TYPE_CHECKING:  # made on first use, see QuickView._view()
+    from .memmapview import MemMapView
+    from .plotview import PlotView
+    from .stepview import StepView
 
 TEXT_LIMIT = 256 * 1024
+_IMAGE_FORMATS: set[bytes] = set()
+
+
+def image_formats() -> set[bytes]:
+    """Extensions Qt can decode (b"png", …), asked once: the list doesn't change."""
+    if not _IMAGE_FORMATS:
+        _IMAGE_FORMATS.update(f.data() for f in QImageReader.supportedImageFormats())
+    return _IMAGE_FORMATS
 IMAGE_LIMIT = 64 * 1024 * 1024
 PDF_LIMIT = 256 * 1024 * 1024  # bigger PDFs inside a zip are not previewed
 PDF_PAGES = 30  # pages rendered in the preview
@@ -452,6 +463,8 @@ class CsvView(QTableWidget):
 
 
 class QuickView(QWidget):
+    model_leave = Signal()  # the 3D view gives back the keys (Esc)
+
     def __init__(self):
         super().__init__()
         self.current: str | None = None
@@ -472,29 +485,15 @@ class QuickView(QWidget):
         self.markdown = MarkdownView()
         self.pdf = PdfView()
         self.csv = CsvView()
-        self.memmap = MemMapView()  # firmware .map / .elf
-        self.memmap.summary.connect(lambda text: self.title.setText(
-            f"{os.path.basename(self.current or '')}   {text}"))
-        self.memmap.not_a_map.connect(self._not_a_map)
-        self.plot = PlotView()  # CSV as a plot (zp); scrolls when there are many columns
-        self.plot.summary.connect(lambda text: self.title.setText(
-            f"{os.path.basename(self.current or '')}   {text}"))
-        self.plot.not_numeric.connect(self._not_numeric)
-        self.plot_area = QScrollArea()
-        self.plot_area.setWidget(self.plot)
-        self.plot_area.setWidgetResizable(True)
-        self.plot_area.setFrameShape(QFrame.Shape.NoFrame)
-        self.plot_area.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.model3d = StepView()  # STEP and STL 3D models
-        self.model3d.summary.connect(lambda text: self.title.setText(
-            f"{os.path.basename(self.current or '')}   {text}"))
-        self.model3d.not_a_model.connect(self._not_a_model)  # a Windows .stl trust list: hex
+        # The memory map, plot and 3D views are made on first use (_view): each
+        # pane has two quick views, and these widgets and their modules slowed startup.
+        self._memmap_view = self._plot_view = self._model3d_view = None
+        self.plot_area: QScrollArea | None = None
         self.pdf.status.connect(lambda text: self.title.setText(
             f"{os.path.basename(self.current or '')}   {text}"))
         self.show_hidden = False  # set by the main window, for the graph's scan
         self.stack = QStackedWidget()
-        for w in (self.text, self.image, self.info, self.graph, self.markdown, self.pdf, self.csv, self.memmap,
-                  self.plot_area, self.model3d):
+        for w in (self.text, self.image, self.info, self.graph, self.markdown, self.pdf, self.csv):
             self.stack.addWidget(w)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -502,15 +501,69 @@ class QuickView(QWidget):
         layout.addWidget(self.title)
         layout.addWidget(self.stack, 1)
 
+    def _view(self, kind: str):
+        """The memory map ("memmap"), plot ("plot") or 3D ("model3d") view, made when first needed."""
+        view = getattr(self, f"_{kind}_view")
+        if view is not None:
+            return view
+        if kind == "memmap":
+            from .memmapview import MemMapView
+            view = page = MemMapView()  # firmware .map / .elf
+            view.not_a_map.connect(self._not_a_map)
+        elif kind == "plot":
+            from .plotview import PlotView
+            view = PlotView()  # CSV as a plot (zp); scrolls when there are many columns
+            view.not_numeric.connect(self._not_numeric)
+            page = self.plot_area = QScrollArea()
+            page.setWidget(view)
+            page.setWidgetResizable(True)
+            page.setFrameShape(QFrame.Shape.NoFrame)
+            page.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        else:
+            from .stepview import StepView
+            view = page = StepView()  # STEP and STL 3D models
+            view.not_a_model.connect(self._not_a_model)  # a Windows .stl trust list: hex
+            view.leave.connect(self.model_leave)
+        view.summary.connect(lambda text: self.title.setText(
+            f"{os.path.basename(self.current or '')}   {text}"))
+        setattr(self, f"_{kind}_view", view)
+        self.stack.addWidget(page)
+        return view
+
+    @property
+    def memmap(self) -> "MemMapView":
+        return self._view("memmap")
+
+    @property
+    def plot(self) -> "PlotView":
+        return self._view("plot")
+
+    @property
+    def model3d(self) -> "StepView":
+        return self._view("model3d")
+
+    def _plot_page(self) -> QWidget:
+        self._view("plot")
+        assert self.plot_area is not None
+        return self.plot_area
+
+    def model_focus_keys(self) -> bool:
+        """zv: give the keys to the 3D model if one is shown."""
+        view = self._model3d_view
+        return view is not None and self.stack.currentWidget() is view and view.focus_keys()
+
+    def _stop_views(self) -> None:
+        for view in (self._memmap_view, self._plot_view, self._model3d_view):
+            if view is not None:
+                view.stop()
+
     def clear(self) -> None:
         self.current = None
         self.text.clear()
         self.image.set_image(QImage())
         self.graph.stop()
         self.pdf.stop()
-        self.memmap.stop()
-        self.plot.stop()
-        self.model3d.stop()
+        self._stop_views()
         self.markdown.clear()
         self.csv.clear()
 
@@ -526,9 +579,7 @@ class QuickView(QWidget):
         self.title.show()
         if not path.lower().endswith(".pdf") or is_dir:
             self.pdf.stop()
-        self.memmap.stop()
-        self.plot.stop()
-        self.model3d.stop()
+        self._stop_views()
         if remote.is_remote(path):
             self.graph.stop()
             try:
@@ -595,13 +646,13 @@ class QuickView(QWidget):
 
     def _plot(self, path: str, in_archive: bool) -> None:
         source = archive.read(path, ARCHIVE_PLOT_LIMIT) if in_archive else path
-        self.stack.setCurrentWidget(self.plot_area)
+        self.stack.setCurrentWidget(self._plot_page())
         self.plot.load(path, source)
 
     def _raw(self, path: str, in_archive: bool) -> None:
         """An LTspice .raw file: its traces as a plot (an operating point as a table)."""
         source = archive.read(path, ARCHIVE_PLOT_LIMIT) if in_archive else path
-        self.stack.setCurrentWidget(self.plot_area)
+        self.stack.setCurrentWidget(self._plot_page())
         self.plot.load(path, source, ltspice.read_raw)
 
     def _operating_point(self, path: str) -> bool:
@@ -708,7 +759,7 @@ class QuickView(QWidget):
                        f"{folders} folder(s), {len(items) - folders} file(s)")
             return
         ext = os.path.splitext(path)[1].lower().lstrip(".").encode()
-        if not HEX["on"] and ext in {f.data() for f in QImageReader.supportedImageFormats()}:
+        if not HEX["on"] and ext in image_formats():
             image = QImage.fromData(QByteArray(remote.REMOTE.read_head(path, IMAGE_LIMIT)))
             if not image.isNull():
                 self.title.setText(f"{os.path.basename(path)}   {image.width()} × {image.height()}")
@@ -748,17 +799,29 @@ class QuickView(QWidget):
 
     def _try_image(self, path: str, in_archive: bool) -> bool:
         ext = os.path.splitext(path)[1].lower().lstrip(".").encode()
-        if ext not in {f.data() for f in QImageReader.supportedImageFormats()}:
+        if ext not in image_formats():
             return False
         if in_archive:
             image = QImage.fromData(QByteArray(archive.read(path, IMAGE_LIMIT)))
+            w, h = image.width(), image.height()
         else:
             reader = QImageReader(path)
             reader.setAutoTransform(True)
+            full = reader.size()
+            # The label only scales down to fit, so decode at most screen size: a
+            # camera photo decodes several times faster (JPEG scales while decoding).
+            screen = self.screen()
+            limit = int(max(screen.size().width(), screen.size().height()) * screen.devicePixelRatio()
+                        if screen else 2048)
+            if full.isValid() and max(full.width(), full.height()) > limit:
+                reader.setScaledSize(full.scaled(limit, limit, Qt.AspectRatioMode.KeepAspectRatio))
             image = reader.read()
+            w, h = (full.width(), full.height()) if full.isValid() else (image.width(), image.height())
+            if full.isValid() and reader.transformation() & QImageIOHandler.Transformation.TransformationRotate90:
+                w, h = h, w  # the size is the stored one, before the EXIF rotation
         if image.isNull():
             return False
-        self.title.setText(f"{os.path.basename(path)}   {image.width()} × {image.height()}")
+        self.title.setText(f"{os.path.basename(path)}   {w} × {h}")
         self.image.set_image(image)
         self.stack.setCurrentWidget(self.image)
         return True

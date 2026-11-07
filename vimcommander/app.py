@@ -13,6 +13,7 @@ import traceback
 import zipfile
 from collections import deque
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QFile, QFileSystemWatcher, QObject, QPoint, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase, QKeyEvent, QTextCursor
@@ -22,29 +23,27 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDialog, QHBoxLa
 
 import tempfile
 
-from . import archive, cleanup, clipboard, config, gitstatus, graphview, pdftools, preview, remote, rules
+from . import archive, clipboard, config, gitstatus, graphview, pdftools, preview, remote, rules
 from .actions import ACTIONS, ALIASES, COMMANDS, needs_argument, resolve
-from .activity import ActivityDialog
-from .bulkrename import BulkRenameDialog
-from .compare import compare_trees
-from .diffview import DiffDialog
-from .grepdialog import GrepDialog
-from .palette import FileFinder, PaletteDialog
 from .shelf import Shelf
 from .terminal import Terminal
-from .sync import SyncDialog
 from .whichkey import WhichKey, pretty
 from .bar import BarItem, LaunchBar, default_items, default_terminal, item_for_path, run_command
 from . import music, termshell, theme, trash, wsl, zoxide
-from .dialogs import PackDialog, ProgressDialog, TrashDialog, UnpackDialog, ZoxideDialog, ask_conflict
 from .jobs import QUEUED_OPS, JobsPanel
 from .fileops import HASHES, Job, SizeJob, unique_dest
-from .pane import DIR_SIZES, NATURAL, SORT_KEYS, Entry, Pane, Results, child_name, human_size, set_colors
+from .pane import (DIR_SIZES, NATURAL, SORT_KEYS, Entry, Pane, Results, child_name, human_size, select_rows,
+                   set_colors)
 from .results import Search, branch_paths, changed_files, find_paths, parse_find
 from .rename import CASES, check_names, format_name, increment, parse_substitute
 from .vim import NORMAL, VISUAL, Action, KeyEngine, parse_langmap, split_keys, user_bindings
-from .rulesdialog import RulesDialog, group_steps
 from .sizing import fit_window
+
+# Dialogs and tools used only on demand are imported where they're opened:
+# each module costs startup time (a lot when run from a WSL /mnt drive).
+if TYPE_CHECKING:
+    from .dialogs import ProgressDialog
+    from .sync import SyncDialog
 
 WINDOWS = sys.platform == "win32"
 if WINDOWS:
@@ -574,6 +573,11 @@ class MainWindow(QMainWindow):
 
         splitter = self.splitter = RatioSplitter(self._pane_ratio(self.settings))
         self._ratio_timer = QTimer(self, singleShot=True, interval=600)  # save once dragging stops
+        # Quick view while a key repeats: the first move shows at once, later ones
+        # wait until the keys pause, so holding j doesn't load every file it passes.
+        self._quickview_timer = QTimer(self, singleShot=True, interval=90)
+        self._quickview_timer.timeout.connect(self._quickview_due)
+        self._quickview_pending = False
         self._ratio_timer.timeout.connect(self.save_settings)
         splitter.ratio_changed.connect(lambda _: self._ratio_timer.start())
         for i, pane in enumerate(self.panes):
@@ -600,7 +604,7 @@ class MainWindow(QMainWindow):
             pane.git_timer = timer
             pane.preview.graph.open_requested.connect(self.on_graph_open)
             for view in (pane.preview, pane.column_preview):
-                view.model3d.leave.connect(lambda: self.pane.view.setFocus())
+                view.model_leave.connect(lambda: self.pane.view.setFocus())
             pane.preview.graph.options_changed.connect(self.save_graph_options)
             pane.preview.markdown.open_requested.connect(self.on_note_link)
 
@@ -1015,7 +1019,7 @@ class MainWindow(QMainWindow):
         if self.link:
             self.link = (self.link[1], self.link[0])
         self.activate(1 - self.active)
-        self.update_quickview()
+        self.show_quickview()
 
     # Marks
 
@@ -1376,6 +1380,7 @@ class MainWindow(QMainWindow):
 
     def _queue_job(self, job: Job) -> Job:
         op = job.op
+        from .dialogs import ask_conflict
         job.conflict.connect(lambda src, dest, job=job: job.answer(*ask_conflict(self, src, dest)))
         job.finished.connect(lambda msg, errors, job=job: self.on_job_done(job, msg, errors))
         self.jobs.append(job)
@@ -1393,6 +1398,7 @@ class MainWindow(QMainWindow):
 
     def _run_job(self, job: Job, dialog: bool) -> None:
         if dialog:  # jobs started from the queue show in the panel only
+            from .dialogs import ProgressDialog
             box = self.job_dialogs[id(job)] = ProgressDialog(job, self)
             box.background.connect(self.jobs_panel.show)
         self.show_message(job.description)
@@ -1430,7 +1436,7 @@ class MainWindow(QMainWindow):
         for pane in self.panes:
             for view in (pane.preview, pane.column_preview):
                 view.current = None  # show it again
-        self.update_quickview()
+        self.show_quickview()
         if self.pane.columns:
             self.pane.update_columns()
         self.show_message("Hex view " + ("on: every file in hex" if preview.HEX["on"] else
@@ -1439,7 +1445,7 @@ class MainWindow(QMainWindow):
     def cmd_model_keys(self, a):
         """zv: the 3D model in quick view takes the keys (h j k l rotate…); Esc gives them back."""
         for view in (self.other.preview, self.pane.column_preview):
-            if view.isVisible() and view.stack.currentWidget() is view.model3d and view.model3d.focus_keys():
+            if view.isVisible() and view.model_focus_keys():
                 return
         self.show_message("No 3D model in quick view (Ctrl-q on a .step or .stl file)")
 
@@ -1452,7 +1458,7 @@ class MainWindow(QMainWindow):
         if preview.PLOT["on"] and not self.quickview:
             self.cmd_quickview(a)
         else:
-            self.update_quickview()
+            self.show_quickview()
         if self.pane.columns:
             self.pane.update_columns()
         self.show_message("CSV files show as plots: drag = zoom, right-click = back (zp = table)"
@@ -1545,9 +1551,26 @@ class MainWindow(QMainWindow):
         if not self.quickview:
             for pane in self.panes:
                 pane.show_preview(False)
-        self.update_quickview()
+        self.show_quickview()
 
     def update_quickview(self) -> None:
+        if not self.quickview:
+            return
+        if self._quickview_timer.isActive():
+            self._quickview_pending = True
+            self._quickview_timer.start()  # restart: wait for the keys to pause
+            return
+        self._quickview_timer.start()
+        self.show_quickview()
+
+    def _quickview_due(self) -> None:
+        if self._quickview_pending:
+            self._quickview_pending = False
+            if self.quickview:
+                self.show_quickview()
+
+    def show_quickview(self) -> None:
+        """Show the cursor's item in the other pane's quick view now."""
         if not self.quickview:
             return
         self.show_both_panes()
@@ -1650,6 +1673,7 @@ class MainWindow(QMainWindow):
         return entries
 
     def cmd_palette(self, a):
+        from .palette import PaletteDialog
         dialog = PaletteDialog(self.palette_entries(), self, self.cmdline.font())
         if dialog.exec() and dialog.chosen:
             entry = dialog.entries[dialog.chosen]
@@ -1679,6 +1703,7 @@ class MainWindow(QMainWindow):
                 frecency = {path: score for score, path in self.zoxide.list()}
             except OSError:
                 pass
+        from .palette import FileFinder
         dialog = FileFinder(self.pane.path, self.pane.model.show_hidden, frecency, self,
                             self.cmdline.font())
         if not (dialog.exec() and dialog.chosen):
@@ -1718,6 +1743,7 @@ class MainWindow(QMainWindow):
                 return run_command(editor, self.bar_context(), [path])
             return QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
+        from .bulkrename import BulkRenameDialog
         dialog = BulkRenameDialog([e.name for e in entries], open_in_editor, self, self.cmdline.font())
         if not dialog.exec():
             return
@@ -1740,6 +1766,7 @@ class MainWindow(QMainWindow):
         if left.archive or right.archive or left.results or right.results:
             self.show_message("Can't compare inside archives or result lists")
             return
+        from .compare import compare_trees
         diffs = compare_trees(left.path, right.path, recursive=False,
                               show_hidden=left.model.show_hidden)
         n_left = left.tag_names({d.rel for d in diffs if d.status in ("left_only", "left_newer", "different")})
@@ -1756,6 +1783,7 @@ class MainWindow(QMainWindow):
         if left.archive or right.archive or left.results or right.results:
             self.show_message("Can't synchronize archives or result lists")
             return
+        from .sync import SyncDialog
         dialog = SyncDialog(left.path, right.path, left.model.show_hidden, self)
         self._run_sync(dialog)
 
@@ -1765,10 +1793,11 @@ class MainWindow(QMainWindow):
         if any(p.archive or p.results for p in self.panes):
             self.show_message("Can't mirror archives or result lists")
             return
+        from .sync import SyncDialog
         dialog = SyncDialog(self.pane.path, self.other.path, self.pane.model.show_hidden, self, mirror=True)
         self._run_sync(dialog)
 
-    def _run_sync(self, dialog: SyncDialog) -> None:
+    def _run_sync(self, dialog: "SyncDialog") -> None:
         dialog.diff_requested.connect(self.diff_files)
         if not dialog.exec():
             return
@@ -1925,6 +1954,7 @@ class MainWindow(QMainWindow):
             return
         name = (os.path.splitext(os.path.basename(paths[0]))[0] if len(paths) == 1
                 else os.path.basename(self.pane.path.rstrip("/\\")) or "archive") + ".zip"
+        from .dialogs import PackDialog
         box = PackDialog(self, len(paths), unique_dest(self.other.path, name))
         if box.exec() != QDialog.DialogCode.Accepted:
             self.pane.view.setFocus()
@@ -1971,6 +2001,7 @@ class MainWindow(QMainWindow):
         if not zips:
             self.show_message("No zip file under the cursor or tagged")
             return
+        from .dialogs import UnpackDialog
         box = UnpackDialog(self, [os.path.basename(z) for z in zips], self.other.path)
         if box.exec() != QDialog.DialogCode.Accepted:
             self.pane.view.setFocus()
@@ -2165,6 +2196,7 @@ class MainWindow(QMainWindow):
     def diff_files(self, a: str, b: str) -> None:
         files = [self._local_copy(p) for p in (a, b)]
         if None not in files:
+            from .diffview import DiffDialog
             DiffDialog(files[0], files[1], self, self.cmdline.font(),
                        titles=(a, b) if any(map(remote.is_remote, (a, b))) else None).exec()
 
@@ -2172,6 +2204,7 @@ class MainWindow(QMainWindow):
 
     def ex_reclaim(self, arg):
         """:reclaim [SIZE] [DAYS]: rebuildable caches and big files unchanged for DAYS, biggest first."""
+        from . import cleanup
         if self._local_only(":reclaim"):
             return
         if self.pane.archive or self.pane.results:
@@ -2190,6 +2223,7 @@ class MainWindow(QMainWindow):
 
     def ex_dupes(self, arg):
         """:dupes [MINSIZE] finds duplicate files; :dupes tag [old] tags all but the newest (oldest) of each set."""
+        from . import cleanup
         if self._local_only(":dupes"):
             return
         word = arg.split()[0] if arg.split() else ""
@@ -2200,12 +2234,8 @@ class MainWindow(QMainWindow):
                 return
             extra = set(cleanup.keep_one(results.groups, newest="old" not in arg.split()[1:]))
             self.pane.clear_tags()
-            sel = self.pane.view.selectionModel()
-            from PySide6.QtCore import QItemSelectionModel
-            for row, e in enumerate(self.pane.model.entries):
-                if e.path in extra:
-                    sel.select(self.pane.model.index(row, 0), QItemSelectionModel.SelectionFlag.Select
-                               | QItemSelectionModel.SelectionFlag.Rows)
+            select_rows(self.pane.view.selectionModel(), self.pane.model,
+                        (row for row, e in enumerate(self.pane.model.entries) if e.path in extra))
             keep = "oldest" if "old" in arg.split()[1:] else "newest"
             self.show_message(f"Tagged {len(extra)} copies; the {keep} of each set is left. Del trashes them")
             self.update_status()
@@ -2311,6 +2341,7 @@ class MainWindow(QMainWindow):
         with open(copy, "wb") as f:
             f.write(old)
         rel = os.path.relpath(entry.path, repo).replace(os.sep, "/")
+        from .diffview import DiffDialog
         DiffDialog(copy, entry.path, self, self.cmdline.font(),
                    titles=(f"HEAD:{rel}   (last commit)", f"{entry.path}   (now)")).exec()
         return True
@@ -2389,6 +2420,7 @@ class MainWindow(QMainWindow):
         if not steps:
             self.show_message(f"{len(rule_list)} rule(s): nothing to do now")
             return
+        from .rulesdialog import RulesDialog, group_steps
         dialog = RulesDialog(steps, self)
         if not dialog.exec() or not dialog.chosen:
             return
@@ -2941,6 +2973,7 @@ class MainWindow(QMainWindow):
             self.show_message(f"Not a file: {next(f for f in files if not os.path.isfile(f))}")
             return
         self.leave_visual()
+        from .diffview import DiffDialog
         DiffDialog(files[0], files[1], self, self.cmdline.font()).exec()
 
     # Activity
@@ -2951,6 +2984,7 @@ class MainWindow(QMainWindow):
         if self.pane.archive:
             self.show_message("No activity view inside archives")
             return
+        from .activity import ActivityDialog
         dialog = ActivityDialog(self.pane.path, self.pane.model.show_hidden, self)
         if dialog.exec() and dialog.result_list:
             self.remember_jump()
@@ -3031,7 +3065,7 @@ class MainWindow(QMainWindow):
             self.save_graph_options()
             for pane in self.panes:
                 pane.preview.current = None  # show again with the new options
-            self.update_quickview()
+            self.show_quickview()
             self.show_message("Graph: " + ", ".join(f"{k}={v}" for k, v in graphview.OPTIONS.items()))
             return
         entry = self.pane.current_entry()
@@ -3492,6 +3526,7 @@ class MainWindow(QMainWindow):
             self.show_message("The trash is empty")
             return
         here = self.pane.path
+        from .dialogs import TrashDialog
         dialog = TrashDialog(found, arg, here, self)
         if not dialog.exec():
             return
@@ -4332,6 +4367,7 @@ class MainWindow(QMainWindow):
         if not entries:
             self.show_message("zoxide's database is empty: visit some folders first")
             return
+        from .dialogs import ZoxideDialog
         dialog = ZoxideDialog(entries, arg, self)
         if dialog.exec() and dialog.chosen:
             if dialog.new_tab:
@@ -4374,6 +4410,7 @@ class MainWindow(QMainWindow):
             return
         root = self.pane.path
         case = (bool(self.settings.get("ignorecase", True)), bool(self.settings.get("smartcase", True)))
+        from .grepdialog import GrepDialog
         dialog = GrepDialog(root, arg, self.pane.model.show_hidden, case, self, self.cmdline.font(),
                             self._grep_globs)
         accepted = dialog.exec()
@@ -5157,7 +5194,8 @@ class MainWindow(QMainWindow):
             mode = (mode + "  " if mode else "") + f"recording @{self.recording.lower()}"
         self.mode_label.setText(mode)
         pane = self.pane
-        total = sum(1 for e in pane.model.entries if not e.is_parent)
+        entries = pane.model.entries
+        total = len(entries) - (1 if entries and entries[0].is_parent else 0)  # '..' is always first
         tagged = len(pane.selected_entries())
         parts = []
         if self.engine.pending_display:
