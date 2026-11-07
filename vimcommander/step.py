@@ -17,6 +17,7 @@ Colours come from STYLED_ITEM / OVER_RIDING_STYLED_ITEM chains. A component's
 pieces are made once and placed per instance.
 """
 
+import json
 import math
 import re
 from dataclasses import dataclass, field
@@ -29,7 +30,24 @@ NAMED_COLORS = {
     "magenta": (1, 0, 1), "cyan": (0, 1, 1), "black": (0.1, 0.1, 0.1), "white": (1, 1, 1),
 }
 
-_ENTITY = re.compile(r"#(\d+)\s*=\s*((?:'(?:[^']|'')*'|[^;'])*);")
+# The body may hold ';' inside strings ('' is a quote in a string): unrolled, so
+# the regex engine runs through the plain text in one step instead of per character.
+_ENTITY = re.compile(r"#(\d+)\s*=\s*([^;']*(?:'[^']*(?:''[^']*)*'[^;']*)*);")
+# A "simple" entity: a quoted name without quotes in it, then only references,
+# numbers, .ENUM.s, $ / * and lists; most of a file. They are parsed in bulk as JSON.
+_SIMPLE = re.compile(r"\s*([A-Z_][A-Z0-9_]*)\s*\(\s*'([^']*)'\s*"
+                     r"(?:,([^'A-Za-z]*(?:(?:\.[A-Za-z_][A-Za-z0-9_]*\.|[eE])[^'A-Za-z]*)*))?\)\s*$")
+_JSON_FIXES = [  # STEP argument text -> JSON (in this order)
+    (re.compile(r"\.(?:T|Y)\."), "true"),
+    (re.compile(r"\.(?:F|N)\."), "false"),
+    (re.compile(r"\.([A-Za-z_][A-Za-z0-9_]*)\."), r'"\1"'),
+    (re.compile(r"[$*]"), "null"),
+    (re.compile(r"(?<=\d)\.(?!\d)"), ".0"),  # 1. and 1.E-3
+    (re.compile(r"(?<![\d#])\.(?=\d)"), "0."),  # .5 and -.5
+    (re.compile(r"(?<![#\d.eE+\-])(-?\d+)(?![\d.eE])"), r"\1.0"),  # integers are numbers too: floats
+    (re.compile(r"(?<=[(,])(\s*)\+"), r"\1"),  # +1.0
+]
+_JSON_CHUNK = 4000  # entities per json.loads; a chunk that doesn't load is left to the slow parser
 _TOKEN = re.compile(r"""\s*(?:
     \#(\d+)                                     # 1 reference
   | '((?:[^']|'')*)'                            # 2 string
@@ -87,8 +105,11 @@ def is_step(path: str) -> bool:
     return path.lower().endswith((".step", ".stp"))
 
 
+_LEADING = re.compile(rb"(?:\s|/\*.*?\*/)*", re.S)  # blanks and /* comments */ (an SPDX line) before the header
+
+
 def looks_like_step(head: bytes) -> bool:
-    return head.lstrip().startswith(b"ISO-10303-21")
+    return head[_LEADING.match(head).end():].startswith(b"ISO-10303-21")
 
 
 # Parsing
@@ -107,8 +128,41 @@ class StepFile:
                 raise Stopped
         self._parsed: dict[int, dict[str, list]] = {}
         self._types: dict[str, list[int]] | None = None
+        self._parse_simple(stop)
+
+    def _parse_simple(self, stop=None) -> None:
+        """Parse the simple entities ahead, many at a time: their arguments become
+        one JSON text (references as integers, every number as a float), read in C
+        by json.loads. The rest are parsed one by one when first used."""
+        found = []  # (ident, kind, name, arguments after the name)
+        match = _SIMPLE.match
+        for ident, raw in self.raw.items():
+            m = match(raw)
+            if m:
+                found.append((ident, m.group(1), m.group(2), m.group(3) or ""))
+        for i in range(0, len(found), _JSON_CHUNK):
+            if stop and stop.is_set():
+                raise Stopped
+            chunk = found[i:i + _JSON_CHUNK]
+            text = "[[" + "],[".join(f[3] for f in chunk) + "]]"
+            for pattern, new in _JSON_FIXES:
+                text = pattern.sub(new, text)
+            text = text.replace("(", "[").replace(")", "]").replace("#", "")
+            try:
+                values = json.loads(text, parse_int=Ref)
+            except ValueError:
+                continue  # something unusual in this chunk: parse its entities lazily
+            if len(values) != len(chunk):
+                continue
+            parsed = self._parsed
+            for (ident, kind, name, _rest), args in zip(chunk, values):
+                args.insert(0, name)
+                parsed[ident] = {kind: args}
 
     def kinds(self, ident: int) -> list[str]:
+        parsed = self._parsed.get(ident)
+        if parsed is not None:
+            return list(parsed)
         raw = self.raw.get(ident)
         if raw is None:
             return []
@@ -116,15 +170,20 @@ class StepFile:
         return [m.group(1).upper()] if m else list(self.get(ident))
 
     def kind(self, ident: int) -> str:
+        parsed = self._parsed.get(ident)  # most are, ahead (_parse_simple): no regex
+        if parsed is not None:
+            return next(iter(parsed), "")
         k = self.kinds(ident)
         return k[0] if k else ""
 
     def by_type(self, name: str) -> list[int]:
         if self._types is None:
             self._types = {}
+            types = self._types
             for ident in self.raw:
-                for k in self.kinds(ident):
-                    self._types.setdefault(k, []).append(ident)
+                parsed = self._parsed.get(ident)
+                for k in (parsed if parsed is not None else self.kinds(ident)):
+                    types.setdefault(k, []).append(ident)
         return self._types.get(name, [])
 
     def get(self, ident: int) -> dict[str, list]:
@@ -680,9 +739,15 @@ class _Builder:
         self.item_cache[ident] = out
         return out
 
-    def shell_pieces(self, shell, color):
+    def shell_pieces(self, shell, color, depth=0):
         out = []
-        for face in self.f.args(shell)[1] if len(self.f.args(shell)) > 1 else []:
+        a = self.f.args(shell)
+        if self.f.kind(shell) in ("ORIENTED_CLOSED_SHELL", "ORIENTED_OPEN_SHELL"):
+            # ('', *, the shell, orientation): e.g. a BREP_WITH_VOIDS' void
+            if len(a) > 2 and isinstance(a[2], Ref) and depth < 4:
+                return self.shell_pieces(a[2], self.colors.get(a[2], color), depth + 1)
+            return out
+        for face in a[1] if len(a) > 1 and isinstance(a[1], list) else []:
             out.extend(self.face_pieces(face, self.colors.get(face, color) or DEFAULT_COLOR))
         return out
 
@@ -935,9 +1000,11 @@ def build(f: StepFile, stop=None) -> Model:
             if mx is IDENTITY:
                 model.pieces.append(p)
                 continue
-            model.pieces.append(Piece([[apply(mx, q) for q in lp] for lp in p.loops], p.color,
-                                      rotate(mx, p.normal) if p.normal else None, p.fill, p.edges,
-                                      [apply(mx, q) for q in p.marks]))
+            m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11 = mx  # apply(), inlined: millions of points
+            loops = [[(m0 * x + m1 * y + m2 * z + m3, m4 * x + m5 * y + m6 * z + m7,
+                       m8 * x + m9 * y + m10 * z + m11) for x, y, z in lp] for lp in p.loops]
+            model.pieces.append(Piece(loops, p.color, rotate(mx, p.normal) if p.normal else None,
+                                      p.fill, p.edges, [apply(mx, q) for q in p.marks]))
 
     placed = set()
 
@@ -986,6 +1053,6 @@ def parse(data: bytes | str, stop=None) -> Model:
     """Raises NotAModel if it isn't a STEP file, ValueError if it is a broken one,
     Stopped when `stop` (an Event) is set."""
     text = data.decode("latin-1") if isinstance(data, bytes) else data
-    if not text.lstrip().startswith("ISO-10303-21"):
+    if not looks_like_step(text[:4096].encode("latin-1")):
         raise NotAModel("not a STEP file")
     return build(StepFile(text, stop), stop)

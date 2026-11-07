@@ -47,6 +47,7 @@ vimcommander/
   memmapview.py          the memory map quick view: region bars and treemap
   step.py                STEP 3D models: entities, B-rep faces, curves, assemblies, colours (pure Python)
   stepview.py            the 3D model quick view: shaded faces back to front, rotate, pan, zoom, measure, keys
+  wireframe.py           a 3D model's edges as numpy arrays: a whole frame projected and culled at once (numpy, Qt-free)
   stl.py                 STL meshes, binary and text, with their sharp edges, as a 3D model (pure Python)
   termview.py            the terminal pane: pyte screen, drawing, keys, scrollback, selection
   termshell.py           which shell the terminal pane runs; OSC 7 folders, cd lines, sshfs (pure Python)
@@ -80,7 +81,8 @@ tests/
   test_mdrender.py       Markdown rendering: callouts, shaded tables, lists, math, md2doc figures
   test_preview.py        natural sort, notebooks, .ioc projects, the quick view's plot and 3D model
   test_memmap.py         GNU ld / Keil map and ELF parsing
-  test_step.py           STEP parsing, faces, colours, assembly placement and part names, curves; STL
+  test_step.py           STEP parsing (bulk and lazy), faces, colours, assembly placement and part names, curves; STL
+  test_wireframe.py      the numpy wireframe: edges, shared edges, sub-pixel merging, cutoffs, the path format
   test_termpane.py       WSL paths, shells, OSC 7, cd lines, sshfs, the terminal screen
   test_space.py          :reclaim, :dupes, git status parsing, folder rules
   test_share.py          :share downloads, uploads and safety; terminal commands

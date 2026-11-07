@@ -86,11 +86,41 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(f.kind(3), "DIRECTION")
         self.assertEqual(f.by_type("B"), [2])
 
+    def test_bulk_parse_matches_slow_parser(self):
+        """Simple entities are parsed ahead through JSON; the result must be the slow parser's."""
+        body = ("#1 = X('n',(1.,-.5,+2.5E-3,3,-4,1.E5,0.25e+2),.T.,.F.,.Y.,.N.,.UNSPECIFIED.,$,*,#7,(#8,(#9)));\n"
+                "#2 = Y('');\n#3 = Z('a',#4);\n#4 = W('b',());\n")
+        f = step.StepFile("ISO-10303-21;\nDATA;\n" + body + "ENDSEC;")
+        for ident in (1, 2, 3, 4):
+            self.assertIn(ident, f._parsed)  # parsed ahead, not when first used
+
+            def same(a, b):
+                if type(a) is not type(b):
+                    return False
+                if isinstance(a, list):
+                    return len(a) == len(b) and all(same(x, y) for x, y in zip(a, b))
+                return a == b
+            slow = step._parse_entity(f.raw[ident])
+            self.assertTrue(same(f.get(ident), slow), (ident, f.get(ident), slow))
+        self.assertEqual(f.kind(1), "X")
+        self.assertIsInstance(f.args(1)[9], step.Ref)
+        self.assertEqual(f.args(1)[1], [1.0, -0.5, 0.0025, 3.0, -4.0, 100000.0, 25.0])
+
+    def test_bulk_parse_falls_back(self):
+        # JSON rejects 007: that chunk is left to the slow parser, with the same result.
+        f = step.StepFile("ISO-10303-21;\nDATA;\n#1 = X('n',007.);\n#2 = Y('m',#1);\nENDSEC;")
+        self.assertNotIn(1, f._parsed)
+        self.assertEqual(f.args(1), ["n", 7.0])
+        self.assertEqual(f.args(2), ["m", 1])
+
     def test_not_step(self):
         with self.assertRaises(ValueError):
             step.parse(b"probe begin { println(1) }")  # a SystemTap .stp script
         self.assertFalse(step.looks_like_step(b"probe begin"))
         self.assertTrue(step.looks_like_step(b"ISO-10303-21;\nHEADER;"))
+        # a comment before the header (FreeCAD's library has an SPDX line)
+        self.assertTrue(step.looks_like_step(b"/* SPDX-License-Identifier: CC-BY-SA-4.0 */\nISO-10303-21;"))
+        self.assertFalse(step.looks_like_step(b"/* probe */ probe begin"))
         self.assertTrue(step.is_step("x/Board.STEP") and step.is_step("a.stp"))
 
     def test_stop(self):
@@ -109,6 +139,17 @@ class ModelTest(unittest.TestCase):
         self.assertTrue(all(len(p.loops[0]) == 4 for p in planes))
         self.assertEqual(m.bounds, ((0.0, 0.0, 0.0), (2.0, 3.0, 1.0)))
         self.assertEqual(m.source, "Tester 1")
+
+    def test_void_shell(self):
+        """A BREP_WITH_VOIDS' void is an ORIENTED_CLOSED_SHELL('',*,#shell,.F.)."""
+        import re
+        text = box_step()
+        m = re.search(r"#(\d+) = MANIFOLD_SOLID_BREP\('box',#(\d+)\);", text)
+        text = text.replace(m.group(0), f"#{m.group(1)} = BREP_WITH_VOIDS('box',#{m.group(2)},(#900));\n"
+                                         f"#900 = ORIENTED_CLOSED_SHELL('',*,#{m.group(2)},.F.);")
+        plain = step.parse(box_step())
+        model = step.parse(text)
+        self.assertEqual(len(model.pieces), 2 * len(plain.pieces))  # the void's faces too
 
     def test_color(self):
         m = step.parse(box_step(color=(0.1, 0.5, 0.9)))
