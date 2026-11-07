@@ -261,6 +261,8 @@ HELP = """\
 <b>3D model</b>: Ctrl-q on a .step / .stp / .stl file = the shaded model; drag = rotate, right-drag = pan, wheel = zoom, double-click = reset
 &nbsp;&nbsp;click = measure from a corner, circle centre or face (a second click = the distance), right-click = clear; the mouse names the part
 &nbsp;&nbsp;zv = keys to the model: h j k l rotate, H J K L pan, + - zoom, 0 = home, 1-6 = front back right left top bottom, w = wireframe, c = clear, Esc = back
+<b>JSON / YAML</b>: Ctrl-q on a .json, .jsonl or .yaml file = a tree; click an arrow to open a level
+&nbsp;&nbsp;zv = keys to the tree: j k move, h l close / open, o toggle, O open all below, M close all, g G top / bottom, y = copy the path (.items[3].name), Y = copy the value, Esc = back
 <b>Share</b>: :share = QR code for a phone to download the tagged files and send files back; :share stop
 <b>SSH</b>: :ssh user@host[:path] = a server's folder in this pane (F5 / F6 copy across, F4 edits and uploads
 &nbsp;&nbsp;on save, Ctrl-` = a shell there), :mirror = make the other pane a copy of this one, :ssh close
@@ -604,7 +606,8 @@ class MainWindow(QMainWindow):
             pane.git_timer = timer
             pane.preview.graph.open_requested.connect(self.on_graph_open)
             for view in (pane.preview, pane.column_preview):
-                view.model_leave.connect(lambda: self.pane.view.setFocus())
+                view.keys_left.connect(lambda: self.pane.view.setFocus())
+                view.message.connect(self.show_message)
             pane.preview.graph.options_changed.connect(self.save_graph_options)
             pane.preview.markdown.open_requested.connect(self.on_note_link)
 
@@ -1443,11 +1446,11 @@ class MainWindow(QMainWindow):
                                          "off (binary files still show in hex)"))
 
     def cmd_model_keys(self, a):
-        """zv: the 3D model in quick view takes the keys (h j k l rotate…); Esc gives them back."""
+        """zv: the 3D model or JSON / YAML tree in quick view takes the keys (h j k l…); Esc gives them back."""
         for view in (self.other.preview, self.pane.column_preview):
-            if view.isVisible() and view.model_focus_keys():
+            if view.isVisible() and view.focus_keys():
                 return
-        self.show_message("No 3D model in quick view (Ctrl-q on a .step or .stl file)")
+        self.show_message("No 3D model or tree in quick view (Ctrl-q on a .step, .stl, .json or .yaml file)")
 
     def cmd_plot(self, a):
         """zp: quick view shows CSV files as a plot of their numeric columns; again = as a table."""

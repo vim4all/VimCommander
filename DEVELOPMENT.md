@@ -19,6 +19,8 @@ vimcommander/
   ltspice.py             LTspice .raw waveforms: binary / text, real / AC, operating points (pure Python)
   mdrender.py            Markdown to Qt rich text: md2doc callouts, shaded tables, figures (pure Python)
   notebook.py            Jupyter notebooks as Markdown and images, for quick view (pure Python)
+  jsontree.py            JSON, JSON Lines and YAML for the quick view's tree: parsing, labels, jq paths (pure Python)
+  jsonview.py            the quick view's JSON / YAML tree: rows made as levels open, vim keys after zv
   cubemx.py              STM32CubeMX .ioc projects: chip, clocks, pins, peripherals (pure Python)
   archive.py             zip files as read-only folders (pure Python)
   trash.py               the system trash: listing, restoring, deleting for good (pure Python)
@@ -79,7 +81,8 @@ tests/
   test_tabular.py        CSV tables, the plot's columns, number labels
   test_ltspice.py        LTspice .raw formats
   test_mdrender.py       Markdown rendering: callouts, shaded tables, lists, math, md2doc figures
-  test_preview.py        natural sort, notebooks, .ioc projects, the quick view's plot and 3D model
+  test_preview.py        natural sort, notebooks, .ioc projects, the quick view's plot, 3D model and JSON tree
+  test_jsontree.py       JSON / JSON Lines / YAML parsing, labels, capped children, jq paths
   test_memmap.py         GNU ld / Keil map and ELF parsing
   test_step.py           STEP parsing (bulk and lazy), faces, colours, assembly placement and part names, curves; STL
   test_wireframe.py      the numpy wireframe: edges, shared edges, sub-pixel merging, cutoffs, the path format

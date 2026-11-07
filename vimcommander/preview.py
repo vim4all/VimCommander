@@ -20,9 +20,11 @@ from PySide6.QtGui import (QDesktopServices, QFontDatabase, QImage, QImageIOHand
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QLabel, QPlainTextEdit, QScrollArea, QSizePolicy,
                                QStackedWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
-from . import archive, cubemx, graphview, ltspice, mdnotes, mdrender, memmap, notebook, pdftools, remote, step, stl, tabular
+from . import (archive, cubemx, graphview, jsontree, ltspice, mdnotes, mdrender, memmap, notebook, pdftools, remote,
+               step, stl, tabular)
 
 if TYPE_CHECKING:  # made on first use, see QuickView._view()
+    from .jsonview import JsonView
     from .memmapview import MemMapView
     from .plotview import PlotView
     from .stepview import StepView
@@ -45,6 +47,7 @@ PLOT = {"on": False}  # zp: CSV files as a plot instead of a table
 ARCHIVE_PLOT_LIMIT = 256 * 1024 * 1024  # a CSV inside a zip is read up to this for a plot
 STEP_LIMIT = 256 * 1024 * 1024  # bigger STEP models show as text
 NOTEBOOK_LIMIT = 64 * 1024 * 1024  # bigger notebooks show as text
+TREE_LIMIT = 32 * 1024 * 1024  # bigger JSON / YAML files show as text
 
 
 def hexdump(data: bytes, offset: int = 0) -> str:
@@ -463,7 +466,8 @@ class CsvView(QTableWidget):
 
 
 class QuickView(QWidget):
-    model_leave = Signal()  # the 3D view gives back the keys (Esc)
+    keys_left = Signal()  # the 3D model or the tree gives back the keys (Esc)
+    message = Signal(str)  # for the status line
 
     def __init__(self):
         super().__init__()
@@ -485,9 +489,9 @@ class QuickView(QWidget):
         self.markdown = MarkdownView()
         self.pdf = PdfView()
         self.csv = CsvView()
-        # The memory map, plot and 3D views are made on first use (_view): each
+        # The memory map, plot, 3D and tree views are made on first use (_view): each
         # pane has two quick views, and these widgets and their modules slowed startup.
-        self._memmap_view = self._plot_view = self._model3d_view = None
+        self._memmap_view = self._plot_view = self._model3d_view = self._tree_view = None
         self.plot_area: QScrollArea | None = None
         self.pdf.status.connect(lambda text: self.title.setText(
             f"{os.path.basename(self.current or '')}   {text}"))
@@ -502,7 +506,8 @@ class QuickView(QWidget):
         layout.addWidget(self.stack, 1)
 
     def _view(self, kind: str):
-        """The memory map ("memmap"), plot ("plot") or 3D ("model3d") view, made when first needed."""
+        """The memory map ("memmap"), plot ("plot"), 3D ("model3d") or JSON / YAML tree ("tree")
+        view, made when first needed."""
         view = getattr(self, f"_{kind}_view")
         if view is not None:
             return view
@@ -519,13 +524,19 @@ class QuickView(QWidget):
             page.setWidgetResizable(True)
             page.setFrameShape(QFrame.Shape.NoFrame)
             page.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        elif kind == "tree":
+            from .jsonview import JsonView
+            view = page = JsonView()  # JSON and YAML
+            view.leave.connect(self.keys_left)
+            view.message.connect(self.message)
         else:
             from .stepview import StepView
             view = page = StepView()  # STEP and STL 3D models
             view.not_a_model.connect(self._not_a_model)  # a Windows .stl trust list: hex
-            view.leave.connect(self.model_leave)
-        view.summary.connect(lambda text: self.title.setText(
-            f"{os.path.basename(self.current or '')}   {text}"))
+            view.leave.connect(self.keys_left)
+        if kind != "tree":
+            view.summary.connect(lambda text: self.title.setText(
+                f"{os.path.basename(self.current or '')}   {text}"))
         setattr(self, f"_{kind}_view", view)
         self.stack.addWidget(page)
         return view
@@ -542,15 +553,19 @@ class QuickView(QWidget):
     def model3d(self) -> "StepView":
         return self._view("model3d")
 
+    @property
+    def tree(self) -> "JsonView":
+        return self._view("tree")
+
     def _plot_page(self) -> QWidget:
         self._view("plot")
         assert self.plot_area is not None
         return self.plot_area
 
-    def model_focus_keys(self) -> bool:
-        """zv: give the keys to the 3D model if one is shown."""
-        view = self._model3d_view
-        return view is not None and self.stack.currentWidget() is view and view.focus_keys()
+    def focus_keys(self) -> bool:
+        """zv: give the keys to the 3D model or the tree if one is shown."""
+        view = self.stack.currentWidget()
+        return view is not None and view in (self._model3d_view, self._tree_view) and view.focus_keys()
 
     def _stop_views(self) -> None:
         for view in (self._memmap_view, self._plot_view, self._model3d_view):
@@ -566,6 +581,8 @@ class QuickView(QWidget):
         self._stop_views()
         self.markdown.clear()
         self.csv.clear()
+        if self._tree_view is not None:
+            self._tree_view.clear()
 
     def show_path(self, path: str | None, is_dir: bool = False) -> None:
         if path == self.current:
@@ -617,6 +634,8 @@ class QuickView(QWidget):
                 self._notebook(path, in_archive)
             elif cubemx.is_ioc(path):
                 self._ioc(path, in_archive)
+            elif jsontree.kind(path):
+                self._tree(path, in_archive)
             elif not self._try_image(path, in_archive):
                 self._text_or_info(path, in_archive)
         except OSError as e:
@@ -624,7 +643,7 @@ class QuickView(QWidget):
 
     def scroll_pages(self, pages: int) -> None:
         widget = self.stack.currentWidget()
-        bar = (widget if widget in (self.text, self.markdown, self.pdf, self.csv, self.plot_area)
+        bar = (widget if widget in (self.text, self.markdown, self.pdf, self.csv, self.plot_area, self._tree_view)
                else self.text).verticalScrollBar()
         bar.setValue(bar.value() + pages * bar.pageStep())
 
@@ -730,6 +749,30 @@ class QuickView(QWidget):
         self.title.setText(f"{os.path.basename(path)}   {nb.summary}")
         self.markdown.show_notebook(nb, None if in_archive else path)
         self.stack.setCurrentWidget(self.markdown)
+
+    def _tree(self, path: str, in_archive: bool) -> None:
+        """JSON, JSON Lines or YAML as a tree; text if it is too big or doesn't parse."""
+        how = jsontree.kind(path)
+        if in_archive:
+            data = archive.read(path, TREE_LIMIT + 1)
+        elif os.path.getsize(path) <= TREE_LIMIT:
+            with open(path, "rb") as f:
+                data = f.read()
+        else:
+            data = None
+        if data is None or len(data) > TREE_LIMIT:
+            self._text_or_info(path, in_archive)
+            self.title.setText(self.title.text() + f"   (over {_size(TREE_LIMIT)}: text)")
+            return
+        try:
+            value = jsontree.load(data, how)
+        except ValueError as e:
+            self._text_or_info(path, in_archive)
+            self.title.setText(self.title.text() + f"   (as text: {e})")
+            return
+        self.title.setText(f"{os.path.basename(path)}   {jsontree.summary(value, how)}   (zv = keys)")
+        self.stack.setCurrentWidget(self.tree)
+        self.tree.show_value(value)
 
     def _ioc(self, path: str, in_archive: bool) -> None:
         """An STM32CubeMX project: chip, clocks, pins, peripherals."""

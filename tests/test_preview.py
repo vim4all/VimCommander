@@ -224,6 +224,50 @@ class QuickViewTest(unittest.TestCase):
         self.wait(lambda: self.view.stack.currentWidget() is self.view.text)
         self.assertIs(self.view.stack.currentWidget(), self.view.text)  # someone else's .raw: hex
 
+    def test_json_tree(self):
+        from PySide6.QtTest import QTest
+        from PySide6.QtCore import Qt
+        doc = {"name": "x", "items": [{"id": i} for i in range(3)], "a key": None}
+        self.view.show_path(self.write("d.json", json.dumps(doc).encode()))
+        tree = self.view.tree
+        self.assertIs(self.view.stack.currentWidget(), tree)
+        self.assertIn("JSON object, 3 keys", self.view.title.text())
+        self.assertEqual(tree.topLevelItemCount(), 3)
+        items = tree.topLevelItem(1)
+        self.assertEqual((items.text(0), items.text(1), items.childCount()), ("items", "[3]", 0))  # not made yet
+        # the keys after zv: l opens and goes in, y copies the path
+        messages = []
+        self.view.message.connect(messages.append)
+        self.assertTrue(self.view.focus_keys())
+        for key in "jll":
+            QTest.keyClick(tree, key)
+        self.assertEqual(items.childCount(), 3)
+        self.assertEqual(tree.currentItem().text(0), "0")
+        QTest.keyClick(tree, "y")
+        self.assertEqual(QApplication.clipboard().text(), ".items[0]")
+        QTest.keyClick(tree, "Y", Qt.KeyboardModifier.ShiftModifier)
+        self.assertEqual(json.loads(QApplication.clipboard().text()), {"id": 0})
+        self.assertEqual(messages[0], "Copied the path .items[0]")
+        QTest.keyClick(tree, "h")
+        QTest.keyClick(tree, "h")
+        self.assertFalse(items.isExpanded())
+        left = []
+        self.view.keys_left.connect(lambda: left.append(1))
+        QTest.keyClick(tree, Qt.Key.Key_Escape)
+        self.assertEqual(left, [1])
+        # a top-level array opens itself when it is the only row; JSON Lines is a list of lines
+        self.view.show_path(self.write("log.jsonl", b'{"n": 1}\n{"n": 2}\n'))
+        self.assertIn("JSON Lines, 2 lines", self.view.title.text())
+        # not valid JSON: text, with the reason
+        self.view.show_path(self.write("settings.json", b'{\n  // a comment\n  "a": 1\n}'))
+        self.assertIs(self.view.stack.currentWidget(), self.view.text)
+        self.assertIn("as text: line 2", self.view.title.text())
+        # :hex wins
+        preview.HEX["on"] = True
+        self.addCleanup(preview.HEX.update, {"on": False})
+        self.view.show_path(self.write("e.json", b"{}"))
+        self.assertIs(self.view.stack.currentWidget(), self.view.text)
+
     def test_step_model(self):
         from PySide6.QtTest import QTest
         from PySide6.QtCore import QPoint, QPointF, Qt

@@ -104,7 +104,7 @@ The screenshots show a made-up home folder; `tools/screenshots.py` makes it and 
 
 **Windows, ready to run**: download `VimCommander-*-windows-x64.zip` from the [latest release](https://github.com/vim4all/VimCommander/releases/latest), unzip it anywhere and start `VimCommander.exe`. No Python needed. The settings are kept in `config.json` next to the exe (portable). Windows SmartScreen may warn the first time, because the exe isn't signed: *More info* → *Run anyway*.
 
-**From source** you need **Python 3.10 or newer**. The dependencies are [PySide6](https://doc.qt.io/qtforpython-6/) (Qt for Python, about 200–300 MB installed), [paramiko](https://www.paramiko.org/) for [SSH folders](#ssh-folders), [segno](https://segno.readthedocs.io/) for the QR code of [`:share`](#share-with-a-phone) and [numpy](https://numpy.org/) for a fast wireframe of big [3D models](#3d-models) (optional). The [music player](#music-player) uses QtMultimedia from `PySide6-Addons` (in requirements.txt; without it everything else still works).
+**From source** you need **Python 3.10 or newer**. The dependencies are [PySide6](https://doc.qt.io/qtforpython-6/) (Qt for Python, about 200–300 MB installed), [paramiko](https://www.paramiko.org/) for [SSH folders](#ssh-folders), [segno](https://segno.readthedocs.io/) for the QR code of [`:share`](#share-with-a-phone), [PyYAML](https://pyyaml.org/) for [YAML trees](#json-and-yaml) and [numpy](https://numpy.org/) for a fast wireframe of big [3D models](#3d-models) (optional). The [music player](#music-player) uses QtMultimedia from `PySide6-Addons` (in requirements.txt; without it everything else still works).
 
 **Linux / macOS**
 
@@ -207,7 +207,7 @@ Keys work in the file panes. Unless noted, a count before a key repeats it or ap
 | `gz` | jump to a folder from zoxide's list (see [zoxide](#zoxide)) |
 | `Ctrl-q` | quick view: the other pane previews the item under the cursor (a folder, or `..` for the current folder, shows as a [graph](#folder-graph)); press again to close |
 | `zp` | quick view shows CSV files as a [plot](#csv-plot) of their numbers, or as a table again (turns quick view on) |
-| `zv` | the keys go to the [3D model](#3d-models) in quick view (`Esc` gives them back) |
+| `zv` | the keys go to the [3D model](#3d-models) or the [JSON / YAML tree](#json-and-yaml) in quick view (`Esc` gives them back) |
 | `Ctrl-p` | [find files](#find-files) below this folder, by a few letters of their name |
 | `g/` | [search inside the files](#search-in-files) below this folder |
 | `gf` | in a [result list](#result-lists): open the file's folder with the cursor on it |
@@ -738,6 +738,7 @@ Programs start in the active pane's folder. On the first run the bar is filled w
 | PDF | the first pages, rendered |
 | Markdown note | rendered; Obsidian `[[links]]` and embedded images work, click a link to go to that note. Also understands [md2doc](https://github.com/vim4all/DCR_MD_to_PDF) documents: front matter as a title block, colored callouts (`> **WARNING** …`, `> [!note]`), tables with shaded cells (`<!--bg:best-->`), footnotes, task lists, simple `$math$`, and mermaid / matplotlib blocks as figures: the PNGs md2doc made next to the note, or mermaid drawn by [mermaid-cli](https://github.com/mermaid-js/mermaid-cli) (`mmdc` on the PATH) into the cache |
 | CSV / TSV | a table with the row and column count; hover a column header for min, max, mean or distinct values. `zp` shows a [plot](#csv-plot) instead |
+| JSON, JSON Lines, YAML (`.json`, `.geojson`, `.jsonl`, `.ndjson`, `.yaml`, `.yml`) | a [tree](#json-and-yaml) to open level by level |
 | Jupyter notebook (`.ipynb`) | its cells, outputs and plots: code shaded, outputs indented below |
 | STM32CubeMX project (`.ioc`) | the chip, clocks, a pin table with labels and modes, the peripheral settings you changed, DMA and interrupts |
 | LTspice result (`.raw`) | its traces as a [plot](#csv-plot); an operating point as a table |
@@ -770,6 +771,25 @@ Quick view (`Ctrl-q`) of a linker map file or a firmware image shows what fills 
 - **`.elf` / `.axf`** images: Flash and RAM from the sections, with the functions and variables of the symbol table. If a `.map` with the same name is next to it, that is shown instead (it knows the object files).
 
 At the top, a bar per region shows how full it is (green, yellow over 70%, red over 90%); click one to see what fills it. Below, a treemap: sections with their object files inside; click a box to zoom into it (then into its functions), right-click or click the path line to go back. Hover a box for its exact size and share. A `.map` that isn't a linker map (a JavaScript source map, a game level) is shown as text.
+
+### JSON and YAML
+
+Quick view (`Ctrl-q`) shows a JSON or YAML file as a tree: keys on the left, values on the right, `{12}` / `[300]` for an object of 12 keys or an array of 300 items. The title line says what the top is (`JSON object, 12 keys`). Click an arrow to open a level; levels are made as you open them, so a 30 MB file shows at once. JSON Lines (`.jsonl`, `.ndjson`) is a list of its lines, a YAML file with several documents (`---`) a list of them.
+
+`zv` gives the keys to the tree:
+
+| Key | Does |
+|---|---|
+| `j` `k` (or the arrows) | down, up |
+| `h` `l` | close / open a level, or go to the parent / the first child |
+| `o`, `Space`, `Enter` | open or close |
+| `O` / `M` | open everything below (up to 5000 rows) / close all |
+| `g` / `G` | top / bottom |
+| `y` | copy the path, as jq writes it: `.items[3].name`, `.[0].id`, `.a["x-y"]` |
+| `Y` | copy the value as indented JSON |
+| `Esc`, `q`, `Tab` | back to the file pane |
+
+A file that doesn't parse shows as text, with the reason in the title (`as text: line 3: Expecting ',' delimiter`); so does a file over 32 MB. VS Code's `settings.json` with comments is not JSON, so it shows as text too. YAML needs [PyYAML](https://pyyaml.org/) (in requirements.txt). Arrays and objects show their first 2000 entries and a row counting the rest.
 
 ### 3D models
 
