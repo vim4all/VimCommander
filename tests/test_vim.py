@@ -171,6 +171,15 @@ class KeyEngineTest(unittest.TestCase):
         self.assertEqual((a.name, a.count), ("percent", 50))
         self.assertEqual(feed(KeyEngine(), "d", "}")[0].arg, "group_next")
 
+    def test_change_extension(self):
+        [a] = feed(KeyEngine(), "c", "i", "e")
+        self.assertEqual((a.name, a.arg), ("rename_at", "ext"))
+        [a] = feed(KeyEngine(), "c", "a", "e")
+        self.assertEqual((a.name, a.arg), ("rename_at", "dotext"))
+        # cw / cc still work, and ci alone waits for the object
+        self.assertEqual(feed(KeyEngine(), "c", "c")[0].arg, "clear")
+        self.assertEqual(feed(KeyEngine(), "c", "i"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

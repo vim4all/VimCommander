@@ -81,6 +81,7 @@ NORMAL_KEYS = {
     "<Del>": "trash", "<F8>": "trash", "<S-Del>": "delete", "u": "undo", "<C-r>": "redo",
     "<C-^>": "alternate", "ZZ": "quit", "ZQ": "quit", "<C-g>": "info", "gx": "open_system",
     "cw": "rename", "<F2>": "rename", "cW": "rename_stem",
+    "cie": "rename_at:ext", "cae": "rename_at:dotext",  # the extension selected, without / with its dot
     "I": "rename_at:start", "A": "rename_at:end", "cc": "rename_at:clear", "C": "rename_at:stem",
     "gUU": "upper", "gUgU": "upper", "guu": "lower", "gugu": "lower", "g~~": "toggle_case", "g~g~": "toggle_case",
     "<C-a>": "increment", "<C-x>": "decrement",  # the number in the name; g: 1, 2, 3... times

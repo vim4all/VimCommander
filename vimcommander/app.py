@@ -198,6 +198,7 @@ HELP = """\
 &nbsp;&nbsp;Shift-Del or DD = delete permanently, u = undo the last copy / move / rename / trash; ga / gA = gs / gS
 &nbsp;&nbsp;cw/F2 = rename, cW = rename without extension, F7 = new folder, za = show/hide hidden files (zo / zm = show / hide)
 &nbsp;&nbsp;I / A = rename with the cursor at the start / end, cc = type a new name, C = a new name, keeping the extension
+&nbsp;&nbsp;cie / cae = rename with the extension selected, without / with its dot (photo.jpg: cie png = photo.png)
 &nbsp;&nbsp;gUU / guu / g~~ = name to UPPER / lower / switched case; with a motion too: gUj, gu3j, g~G
 &nbsp;&nbsp;Ctrl-a / Ctrl-x = add / subtract 1 (5 Ctrl-a: 5) to the last number in the name: img_0099 → img_0100
 &nbsp;&nbsp;g Ctrl-a / g Ctrl-x = tagged or visual items get 1, 2, 3… (vim's g Ctrl-a); . repeats
@@ -1306,7 +1307,8 @@ class MainWindow(QMainWindow):
 
     def cmd_rename_at(self, a):
         """Vim's insert and change keys on the name: I / A = rename with the cursor at
-        the start / end, cc = type a new name, C = a new name before the extension."""
+        the start / end, cc = type a new name, C = a new name before the extension,
+        cie / cae = the extension selected, without / with its dot (at the end if none)."""
         entry = self.pane.current_entry()
         if self.pane.selected_entries():
             self.cmd_rename(a)
@@ -1318,6 +1320,9 @@ class MainWindow(QMainWindow):
         self.show_cmdline(":", "rename " + text)
         if a.arg in ("start", "stem"):
             self.cmdline.setCursorPosition(len("rename "))
+        elif a.arg in ("ext", "dotext") and ext:
+            start = len("rename ") + len(entry.name) - len(ext) + (a.arg == "ext")
+            self.cmdline.setSelection(start, len(self.cmdline.text()) - start)
 
     def cmd_upper(self, a): self.change_case(a.name, self.pane.targets(a.n()))
     cmd_lower = cmd_toggle_case = cmd_upper

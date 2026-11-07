@@ -54,7 +54,7 @@ ACTIONS = {
     "branch": "branch view: every file below this folder",
     "trash": "move to trash", "delete": "delete permanently", "rename": "rename",
     "rename_stem": "rename, keep the extension",
-    "rename_at": "rename: cursor at the start (I) / end (A), new name (cc), new name keeping the extension (C)",
+    "rename_at": "rename: cursor at the start (I) / end (A), new name (cc), new name keeping the extension (C), extension selected (cie / cae)",
     "upper": "names to UPPER case", "lower": "names to lower case", "toggle_case": "switch the case of the names",
     "upper_motion": "UPPER case to the motion", "lower_motion": "lower case to the motion",
     "toggle_case_motion": "switch the case to the motion",

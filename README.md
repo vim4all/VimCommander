@@ -263,6 +263,7 @@ Tagged items are highlighted. File operations act on the tagged items, or on the
 | `@a`, `@@`, `5@a` | play macro `a`, play the last macro again, play it 5 times |
 | `cw`, `F2` | rename |
 | `cW` | rename with only the name selected, so the extension stays |
+| `cie` / `cae` | rename with only the extension selected, without / with its dot: `cie` then `png` makes `photo.jpg` → `photo.png`; `cae` then Backspace drops the extension |
 | `I` / `A` | rename with the cursor at the start / end of the name, like vim's insert keys |
 | `cc` / `C` | rename, typing a new name / a new name before the extension (`C` keeps `.jpg`) |
 | `gUU` / `guu` / `g~~` | the name in UPPER / lower / switched case; with a motion: `gUj`, `gu3j`, `g~G`; `U` / `u` / `~` in visual mode. `.` repeats, `u` undoes |
