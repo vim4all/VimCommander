@@ -13,7 +13,10 @@ Use the project's virtual environment, not the system Python:
 PyInstaller builds for the platform it runs on: run it with a Windows Python
 to get VimCommander.exe, with a Linux or macOS Python for those systems.
 A config.json is put next to the executable, so the build is portable: its
-settings live in that folder. An existing config.json there is kept.
+settings live in that folder, with undo.json and the vimcommanderrc. Rebuilding
+keeps every file there that the build doesn't make (copies stay in build/kept/).
+If config.json is gone but build/kept/ has one, the build stops rather than
+start from defaults; --fresh-config builds anyway.
 """
 
 import json
@@ -27,6 +30,8 @@ NAME = "VimCommander"
 RELEASE = os.path.join(ROOT, "release")
 OUT = os.path.join(RELEASE, NAME)
 WORK = os.path.join(ROOT, "build")
+KEPT = os.path.join(WORK, "kept")  # copies of the user's files in OUT, from the last build
+BUILT = {NAME, NAME + ".exe", "_internal", "README.md", "LICENSE.txt"}  # what a build puts in OUT
 
 
 def make_icon(path: str) -> bool:
@@ -60,24 +65,54 @@ def main() -> None:
         except PermissionError:
             sys.exit(f"{NAME} is running from {OUT}. Close it and build again.")
 
-    # PyInstaller deletes the output folder first, so keep the settings safe
-    # outside it and put them back even if the build fails.
-    kept = None
-    config_file = os.path.join(OUT, "config.json")
-    os.makedirs(WORK, exist_ok=True)
-    backup = os.path.join(WORK, "config.backup.json")
-    if os.path.exists(config_file):
-        shutil.copy2(config_file, backup)
-        with open(config_file, encoding="utf-8") as f:
-            kept = f.read()
+    # PyInstaller deletes the output folder first, so the user's files in it
+    # (settings, undo history, vimcommanderrc…) are copied to build/kept/ and put
+    # back even if the build fails.
+    names = user_files()
+    if ("config.json" not in names and os.path.exists(os.path.join(KEPT, "config.json"))
+            and "--fresh-config" not in sys.argv):
+        sys.exit(f"{os.path.join(OUT, 'config.json')} is missing, but the last build kept one in {KEPT}.\n"
+                 f"Copy it back (with the other files there) and build again, or run with --fresh-config\n"
+                 f"to start from the default settings.")
+    keep_user_files(names)
     try:
-        build(kept is not None)
+        build("config.json" in names)
     finally:
-        if kept is not None:
-            os.makedirs(OUT, exist_ok=True)
-            with open(config_file, "w", encoding="utf-8") as f:
-                f.write(kept)
-    print(f"\nBuilt {OUT}")
+        restore_user_files()
+    print(f"\nBuilt {OUT}" + (f"\nKept {', '.join(sorted(names))} (copies in {KEPT})" if names else ""))
+
+
+def user_files() -> list[str]:
+    """What is in the output folder that a build doesn't make: config.json,
+    undo.json, vimcommanderrc and anything else the user put there."""
+    if not os.path.isdir(OUT):
+        return []
+    return [name for name in os.listdir(OUT) if name not in BUILT]
+
+
+def keep_user_files(names: list[str]) -> None:
+    """Copy them to KEPT, replacing the previous build's copies only once all are copied."""
+    fresh = KEPT + ".new"
+    shutil.rmtree(fresh, ignore_errors=True)
+    os.makedirs(fresh)
+    for name in names:
+        src = os.path.join(OUT, name)
+        if os.path.isdir(src):
+            shutil.copytree(src, os.path.join(fresh, name))
+        else:
+            shutil.copy2(src, os.path.join(fresh, name))
+    shutil.rmtree(KEPT, ignore_errors=True)
+    os.replace(fresh, KEPT)
+
+
+def restore_user_files() -> None:
+    os.makedirs(OUT, exist_ok=True)
+    for name in os.listdir(KEPT):
+        src, dest = os.path.join(KEPT, name), os.path.join(OUT, name)
+        if os.path.isdir(src):
+            shutil.copytree(src, dest, dirs_exist_ok=True)
+        else:
+            shutil.copy2(src, dest)
 
 
 def winpty_programs() -> list[str]:

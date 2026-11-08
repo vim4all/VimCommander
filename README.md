@@ -1264,7 +1264,7 @@ On Linux or macOS, use `.venv/bin/...` instead. PyInstaller builds for the syste
 
 **Releases** are built by GitHub Actions (`.github/workflows/release.yml`): pushing a tag such as `v0.2.0` runs the tests on Windows, builds the exe and publishes `VimCommander-v0.2.0-windows-x64.zip` as a release, with the notes from `.github/release-notes.md`.
 
-The output folder holds `VimCommander.exe` (or `VimCommander`), the `_internal` folder it needs, `config.json`, this README and the license. Copy the whole folder anywhere and create a shortcut to the executable. Rebuilding keeps an existing `release/VimCommander/config.json`.
+The output folder holds `VimCommander.exe` (or `VimCommander`), the `_internal` folder it needs, `config.json`, this README and the license. Copy the whole folder anywhere and create a shortcut to the executable. Rebuilding keeps your files in `release/VimCommander/`: `config.json`, `undo.json`, the `vimcommanderrc` and anything else you put there (copies stay in `build/kept/`). If `config.json` has gone missing but `build/kept/` has one, the build stops instead of starting over from the default settings; `build.py --fresh-config` builds anyway.
 
 ## Development
 
