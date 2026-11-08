@@ -98,7 +98,7 @@ tests/
   sshserver.py           the small SSH server those tests use
   test_tools.py          fuzzy matching, descriptions, bulk rename, compare, activity
   test_trash.py          the trash on Linux and Windows, restoring, the saved undo history
-  test_music.py          playlists, .m3u, the player's order, repeat, shuffle and removing tracks
+  test_music.py          playlists, .m3u, the player's order, repeat, shuffle and removing tracks, the bar's and playlist's icons
 ```
 
 ## Keys and commands

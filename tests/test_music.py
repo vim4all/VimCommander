@@ -184,6 +184,24 @@ class PlayerTest(unittest.TestCase):
         p.set_speed(7)
         self.assertEqual((p.speed, p.options()["speed"]), (4.0, 4.0))
 
+    def test_views(self):
+        from PySide6.QtWidgets import QApplication
+        from vimcommander import icons
+        from vimcommander.player import PlayerBar, PlaylistView
+        QApplication.instance() or QApplication([])
+        p = self.player
+        p.load(["/m/" + "a very long title " * 8 + f"{i}.mp3" for i in range(3)], 1)
+        view = PlaylistView(p)
+        # the long header line of keys doesn't make the pane wider (it moved the splitter)
+        self.assertLess(view.minimumSizeHint().width(), 200)
+        self.assertEqual(view.list.item(1).icon().cacheKey(), icons.icon("playing").cacheKey())
+        self.assertEqual(view.list.item(0).icon().cacheKey(), icons.icon("track").cacheKey())
+        bar = PlayerBar(p)
+        p.set_shuffle(True)
+        self.assertEqual(bar.shuffle_button.icon().cacheKey(), icons.icon("shuffle").cacheKey())
+        p.set_repeat("one")
+        self.assertEqual(bar.repeat_button.icon().cacheKey(), icons.icon("repeat_one").cacheKey())
+
 
 if __name__ == "__main__":
     unittest.main()

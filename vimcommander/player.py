@@ -26,6 +26,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QDockWidget, QHBoxLayout, QLab
                                QListWidgetItem, QMenu, QSizePolicy, QSlider, QStyle, QStyleOptionSlider,
                                QToolButton, QVBoxLayout, QWidget)
 
+from . import icons
+
 REPEAT_MODES = ("all", "one", "off")
 SPEEDS = (0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0)  # what faster / slower step through
 SEEK_STEP = 5000  # ms that Left / Right seek in the playlist
@@ -390,9 +392,11 @@ class PlayerBar(QDockWidget):
         row.setSpacing(4)
         style = self.style()
 
-        def button(icon=None, text="", tip="", slot=None, checkable=False) -> QToolButton:
+        def button(icon=None, text="", tip="", slot=None, checkable=False, glyph="") -> QToolButton:
             b = QToolButton()
-            if icon is not None:
+            if glyph and icons.enabled():
+                b.setIcon(icons.icon(glyph))
+            elif icon is not None:
                 b.setIcon(style.standardIcon(icon))
             else:
                 b.setText(text)
@@ -405,9 +409,9 @@ class PlayerBar(QDockWidget):
             return b
 
         SP = QStyle.StandardPixmap
-        self.prev_button = button(SP.SP_MediaSkipBackward, tip="Previous track   [m", slot=player.previous)
-        self.play_button = button(SP.SP_MediaPlay, tip="Play / pause   gM", slot=player.toggle)
-        self.next_button = button(SP.SP_MediaSkipForward, tip="Next track   ]m", slot=lambda: player.step(1))
+        self.prev_button = button(SP.SP_MediaSkipBackward, glyph="media_prev", tip="Previous track   [m", slot=player.previous)
+        self.play_button = button(SP.SP_MediaPlay, glyph="media_play", tip="Play / pause   gM", slot=player.toggle)
+        self.next_button = button(SP.SP_MediaSkipForward, glyph="media_next", tip="Next track   ]m", slot=lambda: player.step(1))
         self.title = ElidedLabel()
         self.title.clicked.connect(self.playlist_requested)
         self.seek = SeekSlider()
@@ -424,7 +428,7 @@ class PlayerBar(QDockWidget):
         self.volume.setToolTip("Volume")
         self.shuffle_button = button(text="⇄", tip="Shuffle", checkable=True,
                                      slot=lambda on: player.set_shuffle(on))
-        self.shuffle_button.setChecked(player.shuffle)
+        self._update_shuffle()
         self.repeat_button = button(text="↻", slot=self._cycle_repeat)
         self.speed_button = button(text="1×", tip="Speed (click = choose, wheel = faster / slower)")
         self.speed_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -434,9 +438,9 @@ class PlayerBar(QDockWidget):
         self.speed_button.setMenu(speed_menu)
         self.speed_button.setStyleSheet("QToolButton::menu-indicator { image: none; }")
         self.speed_button.installEventFilter(self)
-        self.list_button = button(text="≡", tip="Playlist in the other pane   Ctrl-w m",
+        self.list_button = button(text="≡", glyph="playlist", tip="Playlist in the other pane   Ctrl-w m",
                                   slot=self.playlist_requested)
-        self.close_button = button(SP.SP_TitleBarCloseButton, tip="Stop and close the player   :play off",
+        self.close_button = button(SP.SP_TitleBarCloseButton, glyph="close", tip="Stop and close the player   :play off",
                                    slot=self.close_requested)
         for w in (self.prev_button, self.play_button, self.next_button):
             row.addWidget(w)
@@ -464,8 +468,11 @@ class PlayerBar(QDockWidget):
             self.title.setToolTip(f"{p.current}\nclick = the playlist (Ctrl-w m)")
 
     def _update_playing(self, playing: bool) -> None:
-        self.play_button.setIcon(self.style().standardIcon(
-            QStyle.StandardPixmap.SP_MediaPause if playing else QStyle.StandardPixmap.SP_MediaPlay))
+        if icons.enabled():
+            self.play_button.setIcon(icons.icon("media_pause" if playing else "media_play"))
+        else:
+            self.play_button.setIcon(self.style().standardIcon(
+                QStyle.StandardPixmap.SP_MediaPause if playing else QStyle.StandardPixmap.SP_MediaPlay))
 
     def _update_position(self, position: int, duration: int) -> None:
         if not self.seek.isSliderDown():
@@ -478,7 +485,7 @@ class PlayerBar(QDockWidget):
 
     def _update_options(self) -> None:
         p = self.player
-        self.shuffle_button.setChecked(p.shuffle)
+        self._update_shuffle()
         if self.volume.value() != p.volume:
             self.volume.blockSignals(True)
             self.volume.setValue(p.volume)
@@ -502,8 +509,15 @@ class PlayerBar(QDockWidget):
     def _cycle_repeat(self) -> None:
         self.player.cycle_repeat()
 
+    def _update_shuffle(self) -> None:
+        self.shuffle_button.setChecked(self.player.shuffle)
+        if icons.enabled():
+            self.shuffle_button.setIcon(icons.icon("shuffle" if self.player.shuffle else "shuffle_off"))
+
     def _update_repeat(self) -> None:
         text, tip = REPEAT_TEXT[self.player.repeat]
+        if icons.enabled():
+            self.repeat_button.setIcon(icons.icon("repeat_" + self.player.repeat))
         self.repeat_button.setText(text)
         self.repeat_button.setToolTip(tip + "   (click = next mode)")
 
@@ -620,6 +634,9 @@ class PlaylistView(QWidget):
         self.player = player
         self.header = QLabel()
         self.header.setContentsMargins(6, 3, 6, 3)
+        # the long line of keys must not set the pane's minimum width: the splitter
+        # then moved to make room for it
+        self.header.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.list = PlaylistList()
         self.list.key_command.connect(self._key_command)
         self.list.files_dropped.connect(lambda paths: self.player.add(music.collect(paths)))
@@ -640,10 +657,15 @@ class PlaylistView(QWidget):
     def refresh(self) -> None:
         p = self.player
         if p.tracks != self._shown:
+            side = self.list.fontMetrics().height()
+            self.list.setIconSize(QSize(side, side))  # icons as tall as the text, not 32 px
             row = self.list.currentRow()
             self.list.clear()
             for n, name in enumerate(music.display_names(p.tracks), 1):
-                item = QListWidgetItem(f"  {n:>3}  {name}")  # "▶ " goes over the first two
+                if icons.enabled():  # the playing one gets a ▶ icon
+                    item = QListWidgetItem(icons.icon("track"), f"{n:>3}  {name}")
+                else:
+                    item = QListWidgetItem(f"  {n:>3}  {name}")  # "▶ " goes over the first two
                 item.setToolTip(p.tracks[n - 1])
                 self.list.addItem(item)
             self._shown = list(p.tracks)
@@ -661,8 +683,11 @@ class PlaylistView(QWidget):
                 font = QFont(self.list.font())
                 font.setBold(bold)
                 item.setFont(font)
-                text = item.text()
-                item.setText(("▶ " if bold else "  ") + text[2:])
+                if icons.enabled():
+                    item.setIcon(icons.icon("playing" if bold else "track"))
+                else:
+                    text = item.text()
+                    item.setText(("▶ " if bold else "  ") + text[2:])
         self._marked = index
         if index >= 0 and not self.list.hasFocus():
             self.list.move_to(index)

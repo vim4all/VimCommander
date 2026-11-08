@@ -48,6 +48,13 @@ GLYPHS = {
     "link": (0xF481, "sky"), "model": (0xF1B2, "lavender"), "chip": (0xF2DB, "teal"),
     "memmap": (0xF0E8, "teal"), "notebook": (0xE678, "peach"), "plot": (0xF1FE, "green"),
     "license": (0xE60A, "yellow"), "mail": (0xF0E0, "sky"), "code": (0xF1C9, "green"),
+    # the music player's buttons and playlist
+    "media_prev": (0xF04AE, "subtext1"), "media_next": (0xF04AD, "subtext1"),
+    "media_play": (0xF040A, "green"), "media_pause": (0xF03E4, "green"),
+    "shuffle": (0xF049D, "mauve"), "shuffle_off": (0xF049E, "overlay1"),
+    "repeat_all": (0xF0456, "blue"), "repeat_one": (0xF0458, "sapphire"), "repeat_off": (0xF0457, "overlay1"),
+    "playlist": (0xF0CB8, "subtext1"), "close": (0xF0156, "overlay2"),
+    "track": (0xF0387, "pink"), "playing": (0xF040A, "green"),
     # programs in the launch bar
     "terminal": (0xF120, "green"), "vscode": (0xE70C, "blue"), "neovim": (0xE6AE, "green"),
     "firefox": (0xF269, "peach"), "chrome": (0xF268, "yellow"), "browser": (0xF0AC, "sky"),
