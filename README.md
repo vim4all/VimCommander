@@ -2,7 +2,7 @@
 
 **A two-pane graphical file manager that you drive with vim keys.**
 
-VimCommander combines the layout of Total Commander with the keyboard of [vifm](https://vifm.info/) and vim, in a normal desktop window. It also supports drag and drop, a launch bar for folders and programs, and system icons. You can do everything from the keyboard (`j`/`k`, `gg`, `yy`/`p`, `:cd`, marks, counts) or with the mouse, and it runs on Windows, macOS and Linux.
+VimCommander combines the layout of Total Commander with the keyboard of [vifm](https://vifm.info/) and vim, in a normal desktop window. It also supports drag and drop, a launch bar for folders and programs, and Nerd Font file icons. You can do everything from the keyboard (`j`/`k`, `gg`, `yy`/`p`, `:cd`, marks, counts) or with the mouse, and it runs on Windows, macOS and Linux.
 
 ![VimCommander: a home folder on the left, its folder graph in quick view on the right](docs/graph-tree.png)
 
@@ -705,7 +705,7 @@ The bar above the panes holds buttons for folders and programs you use often.
 | edit, remove or reorder | right-click a button → *Edit…*, *Remove*, *Move left/right* |
 | hide the text labels | right-click → *Show labels* |
 
-A button has a **name**, a **path or command** (a folder, a program path, or a command found on `PATH`, such as `code`), optional **arguments** and an optional **icon** file. If the path is a document rather than a program, it opens with its default application.
+A button has a **name**, a **path or command** (a folder, a program path, or a command found on `PATH`, such as `code`), optional **arguments** and an optional **icon**: an image file, or a Nerd Font glyph by its code point and an optional colour (`U+F135 mauve`, `f120 #a6e3a1`; [the cheat sheet](https://www.nerdfonts.com/cheat-sheet) lists them). Without one, folders, known programs (terminals, editors, browsers) and documents get a glyph of their own (see the `icons` option). If the path is a document rather than a program, it opens with its default application.
 
 These placeholders are filled in when the program starts:
 
@@ -1073,6 +1073,8 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
   "natural_sort": true,
   "syntax": true,
   "zoom": 0,
+  "icons": "auto",
+  "icon_font": "",
   "git": true,
   "columns": false,
   "rules": [],
@@ -1121,6 +1123,8 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
 | `natural_sort` | numbers in names sort by value, `run2` before `run10` (`:set natural`) |
 | `syntax` | code in quick view in colour, with Pygments (`:set syntax`) |
 | `zoom` | points added to every font size: `Ctrl-+` / `Ctrl--` change it, `Ctrl-0` sets it back to 0 (your `font` and `monospace` sizes) |
+| `icons` | `"auto"`: file, folder and launch-bar icons as [Nerd Font](https://www.nerdfonts.com/) glyphs in Catppuccin colours (Mocha on a dark background or with the theme, Latte on a light one), the way vim's file trees show them; without a Nerd Font installed, plain folder and page shapes in the same colours. `"system"`: the system's icons |
+| `icon_font` | the Nerd Font the icons come from; `""` = the first one installed (any, e.g. *0xProto Nerd Font Mono* or *Symbols Nerd Font*) |
 | `git` | [git](#git) status colors and branch (`:set git`) |
 | `columns` | [Miller columns](#miller-columns) (`:set columns`) |
 | `player` | the [music player](#music-player): `volume` (0–100), `shuffle`, `repeat` (`"all"`, `"one"` or `"off"`), `speed` (0.25–4, `1.0` = normal); the player saves them when you change them |

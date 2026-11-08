@@ -30,7 +30,7 @@ from .shelf import Shelf
 from .terminal import Terminal
 from .whichkey import WhichKey, pretty
 from .bar import BarItem, LaunchBar, default_items, default_terminal, item_for_path, run_command
-from . import music, termshell, theme, trash, wsl, zoxide
+from . import icons, music, termshell, theme, trash, wsl, zoxide
 from .jobs import QUEUED_OPS, JobsPanel
 from .fileops import HASHES, Job, SizeJob, unique_dest
 from .pane import (DIR_SIZES, NATURAL, SORT_KEYS, Entry, Pane, Results, child_name, human_size, select_rows,
@@ -5121,6 +5121,13 @@ class MainWindow(QMainWindow):
                 self.zoxide = zoxide.Zoxide(program) if program else None
             if not theme.apply(s.get("theme") or ""):
                 bad.append(f"theme: {s.get('theme')}")
+            icon_options = {"icons": "system" if s.get("icons") == "system" else "auto",
+                            "font": str(s.get("icon_font") or "")}
+            icon_state = (icon_options, s.get("theme") or "")  # the bar's buttons are made again
+            if icon_options != icons.OPTIONS:
+                icons.OPTIONS.update(icon_options)
+                if hasattr(self, "shelf"):
+                    self.shelf.set_paths(self.shelf.paths)
             bad_colors = set_colors(s.get("colors") or {}, theme.color_defaults(s.get("theme") or ""))
             options = s.get("graph") or {}
             graphview.OPTIONS.update({
@@ -5169,7 +5176,9 @@ class MainWindow(QMainWindow):
                 items = [BarItem.from_dict(d) for d in s["bar"] if isinstance(d, dict)]
             else:
                 items = default_items()
-            if items != self.bar.items or s.get("bar_labels", True) != self.bar.show_labels:
+            if (items != self.bar.items or s.get("bar_labels", True) != self.bar.show_labels
+                    or icon_state != getattr(self, "_icon_state", None)):
+                self._icon_state = icon_state
                 self.bar.items, self.bar.show_labels = items, bool(s.get("bar_labels", True))
                 self.bar.rebuild()
             self.bar.setVisible(bool(s.get("bar_visible", True)))

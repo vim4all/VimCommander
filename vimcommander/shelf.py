@@ -13,6 +13,8 @@ from PySide6.QtCore import QFileInfo, QItemSelectionModel, QMimeData, QSize, Qt,
 from PySide6.QtWidgets import (QAbstractItemView, QDockWidget, QFileIconProvider, QListWidget,
                                QListWidgetItem, QMenu, QWidget)
 
+from . import icons
+
 
 class ShelfList(QListWidget):
     files_dropped = Signal(list)
@@ -151,9 +153,11 @@ class Shelf(QDockWidget):
         item = QListWidgetItem(f"{name}   ({folder})")  # the full path is the tooltip
         item.setToolTip(path)
         item.setData(Qt.ItemDataRole.UserRole, path)
-        info = QFileInfo(path)
-        icon = (self._icons.icon(QFileIconProvider.IconType.Folder) if os.path.isdir(path)
-                else self._icons.icon(info))
+        if icons.enabled():
+            icon = icons.for_name(name, os.path.isdir(path))
+        else:
+            icon = (self._icons.icon(QFileIconProvider.IconType.Folder) if os.path.isdir(path)
+                    else self._icons.icon(QFileInfo(path)))
         item.setIcon(icon)
         return item
 

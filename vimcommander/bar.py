@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QFileIcon
                                QFormLayout, QHBoxLayout, QLineEdit, QMenu, QPushButton, QStyle,
                                QToolBar, QToolButton, QWidget)
 
+from . import icons
+
 REMOTE_SCHEMES = ("sftp://", "ftp://", "ftps://")  # remote.SCHEMES (bar.py stays free of the app's modules)
 
 WINDOWS = sys.platform == "win32"
@@ -117,9 +119,32 @@ def _provider() -> QFileIconProvider:
     return QFileIconProvider()
 
 
+def themed_icon(item: BarItem) -> QIcon:
+    """The button's glyph (icons.py): a known folder or program, else by its kind."""
+    path = item.full_path
+    if path.startswith(REMOTE_SCHEMES):
+        return icons.icon("server")
+    if item.is_folder:
+        home = os.path.expanduser("~")
+        if os.path.normcase(path.rstrip("/\\")) == os.path.normcase(home):
+            return icons.icon("home")
+        if path.rstrip("/\\") == os.path.splitdrive(path)[0] or path == "/":
+            return icons.icon("drive")  # "/", "C:\\"
+        kind = icons.kind_for(os.path.basename(path.rstrip("/\\")), True)
+        return icons.icon("folder" if kind.startswith("folder_") else kind)
+    program = _resolve_program(path)
+    if program or os.path.splitext(path)[1] == "":
+        return icons.icon(icons.program_kind(program or path))
+    return icons.for_name(os.path.basename(path))
+
+
 def icon_for(item: BarItem, style: QStyle) -> QIcon:
     if item.icon and os.path.isfile(os.path.expanduser(item.icon)):
         return QIcon(os.path.expanduser(item.icon))
+    if item.icon and (glyph := icons.parse_spec(item.icon)):
+        return glyph
+    if icons.enabled():
+        return themed_icon(item)
     path = item.full_path
     if item.is_folder:
         home = os.path.expanduser("~")
@@ -213,7 +238,7 @@ class EditDialog(QDialog):
         self.args = QLineEdit(item.args)
         self.args.setPlaceholderText("%d folder, %o other pane, %f file, %s selected files")
         self.icon = QLineEdit(item.icon)
-        self.icon.setPlaceholderText("optional .png / .ico / .svg")
+        self.icon.setPlaceholderText("optional .png / .ico / .svg, or a Nerd Font glyph: U+F120 green")
 
         form = QFormLayout(self)
         form.addRow("Name", self.name)

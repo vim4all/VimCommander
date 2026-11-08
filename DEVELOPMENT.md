@@ -19,6 +19,7 @@ vimcommander/
   ltspice.py             LTspice .raw waveforms: binary / text, real / AC, operating points (pure Python)
   mdrender.py            Markdown to Qt rich text: md2doc callouts, shaded tables, figures (pure Python)
   notebook.py            Jupyter notebooks as Markdown and images, for quick view (pure Python)
+  icons.py               file, folder and bar icons: Nerd Font glyphs in Catppuccin colours, painted at any size
   syntax.py              code colours for quick view: Pygments tokens as per-line runs of a few categories (Qt-free)
   jsontree.py            JSON, JSON Lines and YAML for the quick view's tree: parsing, labels, jq paths (pure Python)
   jsonview.py            the quick view's JSON / YAML tree: rows made as levels open, vim keys after zv
@@ -83,6 +84,7 @@ tests/
   test_ltspice.py        LTspice .raw formats
   test_mdrender.py       Markdown rendering: callouts, shaded tables, lists, math, md2doc figures
   test_preview.py        natural sort, notebooks, .ioc projects, the quick view's plot, 3D model and JSON tree
+  test_icons.py          icon kinds by name, clean painting, cursor recolouring, bar glyph specs
   test_syntax.py         code colours: lexer choice, per-line runs, UTF-16 positions, palettes
   test_zoom.py           zoom keys' names and the window / list font sizes with the zoom
   test_jsontree.py       JSON / JSON Lines / YAML parsing, labels, capped children, jq paths

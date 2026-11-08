@@ -20,6 +20,16 @@ MOCHA = {
     "surface2": "#585b70", "surface1": "#45475a", "surface0": "#313244", "base": "#1e1e2e",
     "mantle": "#181825", "crust": "#11111b",
 }
+# Latte, the light flavour: file icons in the system look on a light background
+LATTE = {
+    "rosewater": "#dc8a78", "flamingo": "#dd7878", "pink": "#ea76cb", "mauve": "#8839ef",
+    "red": "#d20f39", "maroon": "#e64553", "peach": "#fe640b", "yellow": "#df8e1d",
+    "green": "#40a02b", "teal": "#179299", "sky": "#04a5e5", "sapphire": "#209fb5",
+    "blue": "#1e66f5", "lavender": "#7287fd", "text": "#4c4f69", "subtext1": "#5c5f77",
+    "subtext0": "#6c6f85", "overlay2": "#7c7f93", "overlay1": "#8c8fa1", "overlay0": "#9ca0b0",
+    "surface2": "#acb0be", "surface1": "#bcc0cc", "surface0": "#ccd0da", "base": "#eff1f5",
+    "mantle": "#e6e9ef", "crust": "#dce0e8",
+}
 
 
 # The system look keeps its native widgets; only the line numbers lose the
@@ -138,6 +148,7 @@ def _mocha() -> dict:
         "grep": {"match": (m["yellow"], 100), "line": (m["blue"], 45)},
         "sync": {">": m["blue"], "<": m["green"], "": m["overlay1"], "x": m["red"]},
         "activity": m["green"],
+        "icons": m,  # file and bar icons (icons.py): colour names from this palette
         "terminal": [m["surface1"], m["red"], m["green"], m["yellow"], m["blue"], m["pink"], m["teal"],
                      m["subtext1"], m["surface2"], m["red"], m["green"], m["yellow"], m["blue"], m["pink"],
                      m["teal"], m["subtext0"]],
@@ -178,7 +189,7 @@ def _rgba(spec) -> QColor:
 def apply(name: str) -> bool:
     """Switch the app to theme `name` ("" = system). False if there is no such theme."""
     global _current
-    from . import activity, diffview, graphview, grepdialog, sync, syntax, termshell  # they import Qt widgets
+    from . import activity, diffview, graphview, grepdialog, icons, sync, syntax, termshell  # they import Qt widgets
     name = ALIASES.get(str(name or "").strip().lower(), str(name or "").strip().lower())
     if name and name not in THEMES:
         return False
@@ -207,6 +218,7 @@ def apply(name: str) -> bool:
         activity.BASE_COLOR = _system["activity"]
         termshell.ANSI[:] = termshell.DEFAULT_ANSI
         syntax.THEME = None  # light or dark by the background
+        icons.THEME = None
     else:
         t = THEMES[name]()
         QApplication.setStyle("Fusion")
@@ -228,5 +240,6 @@ def apply(name: str) -> bool:
         activity.BASE_COLOR = QColor(t["activity"])
         termshell.ANSI[:] = t["terminal"]
         syntax.THEME = t["syntax"]
+        icons.THEME = t["icons"]
     _current = name
     return True

@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QFileIconProvide
                                QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
                                QTableView, QTabBar, QToolButton, QVBoxLayout, QWidget)
 
-from . import archive, remote, wsl
+from . import archive, icons, remote, wsl
 from .grid import GridDelegate, ThumbLoader
 from .preview import QuickView
 
@@ -382,6 +382,8 @@ class DirModel(QAbstractTableModel):
         return None
 
     def _icon(self, e: Entry):
+        if icons.enabled():
+            return icons.icon("parent") if e.is_parent else icons.for_name(e.name, e.is_dir)
         if e.is_dir:
             key = "<dir>"
         else:
@@ -482,6 +484,8 @@ class CursorDelegate(QStyledItemDelegate):
         if index.row() == view.currentIndex().row():
             if view.active:
                 background, text = COLORS.get("cursor"), COLORS.get("cursor_text")
+                if text is not None and not opt.icon.isNull():
+                    opt.icon = icons.recolored(opt.icon, text)
             else:
                 background = COLORS.get("cursor_inactive")
         if tagged:
@@ -844,10 +848,13 @@ class ColumnList(QListWidget):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setTextElideMode(Qt.TextElideMode.ElideRight)
         self._icons = QFileIconProvider()
-        self._folder_icon = self._icons.icon(QFileIconProvider.IconType.Folder)
-        self._file_icon = self._icons.icon(QFileIconProvider.IconType.File)
         self.folder: str | None = None
         self.setMinimumWidth(60)
+
+    def _item_icon(self, name: str, is_dir: bool):
+        if icons.enabled():
+            return icons.for_name(name, is_dir)
+        return self._icons.icon(QFileIconProvider.IconType.Folder if is_dir else QFileIconProvider.IconType.File)
 
     def show_folder(self, folder: str, select: str | None, show_hidden: bool) -> None:
         if folder == self.folder and select is None:
@@ -871,7 +878,7 @@ class ColumnList(QListWidget):
         bold = QFont(self.font())
         bold.setBold(True)
         for name, is_dir in items[:self.LIMIT]:
-            item = QListWidgetItem(self._folder_icon if is_dir else self._file_icon, name)
+            item = QListWidgetItem(self._item_icon(name, is_dir), name)
             if is_dir:
                 item.setFont(bold)
             self.addItem(item)
