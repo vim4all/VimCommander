@@ -102,6 +102,7 @@ NORMAL_KEYS = {
     "=": "filter",
     ":": "command",
     "<F1>": "help",
+    "<C-+>": "zoom:in", "<C-=>": "zoom:in", "<C-->": "zoom:out", "<C-0>": "zoom:reset",
     "<Esc>": "escape", "<C-c>": "escape",
     **{f"g{i}": f"bar:{i}" for i in range(1, 10)},
 }

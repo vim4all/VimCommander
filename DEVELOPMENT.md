@@ -83,6 +83,8 @@ tests/
   test_ltspice.py        LTspice .raw formats
   test_mdrender.py       Markdown rendering: callouts, shaded tables, lists, math, md2doc figures
   test_preview.py        natural sort, notebooks, .ioc projects, the quick view's plot, 3D model and JSON tree
+  test_syntax.py         code colours: lexer choice, per-line runs, UTF-16 positions, palettes
+  test_zoom.py           zoom keys' names and the window / list font sizes with the zoom
   test_jsontree.py       JSON / JSON Lines / YAML parsing, labels, capped children, jq paths
   test_memmap.py         GNU ld / Keil map and ELF parsing
   test_step.py           STEP parsing (bulk and lazy), faces, colours, assembly placement and part names, curves; STL

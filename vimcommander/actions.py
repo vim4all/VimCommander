@@ -73,7 +73,7 @@ ACTIONS = {
     # Views and windows
     "quickview": "quick view", "plot": "CSV in quick view: plot / table", "model_keys": "keys to the 3D model or JSON / YAML tree in quick view", "grid": "thumbnails / list", "terminal": "terminal panel", "graph_window": "graph window", "activity": "activity heatmap",
     "context_menu": "context menu", "command": "command line", "palette": "command palette",
-    "help": "key reference", "quit": "close tab / quit",
+    "help": "key reference", "quit": "close tab / quit", "zoom": "font size: bigger (Ctrl-+) / smaller (Ctrl--) / as configured (Ctrl-0)",
 }
 
 # ':' commands: canonical name -> (usage, description). Aliases are listed in ALIASES.

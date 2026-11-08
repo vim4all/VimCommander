@@ -171,6 +171,13 @@ class KeyEngineTest(unittest.TestCase):
         self.assertEqual((a.name, a.count), ("percent", 50))
         self.assertEqual(feed(KeyEngine(), "d", "}")[0].arg, "group_next")
 
+    def test_zoom_keys(self):
+        for key, arg in (("<C-+>", "in"), ("<C-=>", "in"), ("<C-->", "out"), ("<C-0>", "reset")):
+            [a] = feed(KeyEngine(), key)
+            self.assertEqual((a.name, a.arg), ("zoom", arg))
+        [a] = feed(KeyEngine(), "3", "<C-+>")
+        self.assertEqual(a.count, 3)
+
     def test_change_extension(self):
         [a] = feed(KeyEngine(), "c", "i", "e")
         self.assertEqual((a.name, a.arg), ("rename_at", "ext"))

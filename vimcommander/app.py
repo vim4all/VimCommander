@@ -73,8 +73,31 @@ MONOSPACE_FONTS = ("Cascadia Mono", "Consolas", "JetBrains Mono", "SF Mono", "Me
                    "DejaVu Sans Mono", "Ubuntu Mono", "Liberation Mono", "Noto Sans Mono")
 
 
-def monospace_font(options: dict) -> tuple[QFont, str]:
-    """The font for the file lists from the "monospace" options, and a warning or ""."""
+SYSTEM_FONT: QFont | None = None  # the platform's font, before the config's (set in main())
+ZOOM_LIMITS = (5.0, 40.0)  # point sizes zoom stays between
+
+
+def zoomed(size: float, zoom) -> float:
+    """A point size with the zoom (Ctrl-+ / Ctrl--: points added) applied."""
+    zoom = zoom if isinstance(zoom, (int, float)) else 0
+    return min(ZOOM_LIMITS[1], max(ZOOM_LIMITS[0], size + zoom))
+
+
+def ui_font(settings: dict) -> QFont:
+    """The window's font from the "font" options and the zoom."""
+    font = QFont(SYSTEM_FONT if SYSTEM_FONT is not None else QApplication.font())
+    options = settings.get("font") or {}
+    if family := options.get("family"):
+        font.setFamily(str(family))
+    size = options.get("size")
+    base = size if isinstance(size, (int, float)) and size > 0 else font.pointSizeF()
+    font.setPointSizeF(zoomed(base, settings.get("zoom", 0)))
+    return font
+
+
+def monospace_font(options: dict, zoom=0) -> tuple[QFont, str]:
+    """The font for the file lists from the "monospace" options, and a warning or ""
+    (without a size of its own it takes the window font's, zoom included)."""
     base = QApplication.font()
     if not options.get("enabled", True):
         return QFont(base), ""
@@ -90,7 +113,7 @@ def monospace_font(options: dict) -> tuple[QFont, str]:
     font.setStyleHint(QFont.StyleHint.Monospace)
     size = options.get("size")
     if isinstance(size, (int, float)) and size > 0:
-        font.setPointSizeF(size)
+        font.setPointSizeF(zoomed(size, zoom))
     warning = f"Font not installed: {wanted}, using {font.family()}" if wanted and wanted != family else ""
     return font, warning
 
@@ -252,6 +275,7 @@ HELP = """\
 <b>More</b>: :linkpanes = browse two mirror trees together, :set columns = Miller columns, :rules = folder rules,
 &nbsp;&nbsp;:mksession NAME / :session NAME = save / open both panes' tabs and the shelf
 <b>Grid</b>: zi = thumbnails / list (j k = a row, w b = one tile, Ctrl+wheel = size), :grid SIZE
+<b>Zoom</b>: Ctrl-+ / Ctrl-- = every font a point bigger / smaller (3 Ctrl-+ = three), Ctrl-0 = the sizes in the config
 <b>Terminal</b>: Ctrl-` = terminal panel; it follows the pane and the pane follows its cd; Esc = back
 &nbsp;&nbsp;Ctrl-w t or :vterm [wsl|wsl:NAME|pwsh|cmd|bash] = a real terminal in the other pane (vim, htop work)
 &nbsp;&nbsp;in it: Ctrl-w h/l/w = back to the files, Shift-PgUp = scroll back, Ctrl-Shift-C / V = copy / paste, exit = close
@@ -291,6 +315,11 @@ HELP = """\
 """
 
 
+ZOOM_KEYS = {int(Qt.Key.Key_Plus.value): "<C-+>", int(Qt.Key.Key_Equal.value): "<C-=>",
+             int(Qt.Key.Key_Minus.value): "<C-->", int(Qt.Key.Key_Underscore.value): "<C-->",
+             int(Qt.Key.Key_0.value): "<C-0>"}
+
+
 def key_name(event: QKeyEvent) -> str | None:
     """Turn a key event into vim notation, or None for bare modifier presses."""
     key = event.key()
@@ -315,6 +344,8 @@ def key_name(event: QKeyEvent) -> str | None:
         return "<C-`>"
     if ctrl and key == int(Qt.Key.Key_BracketLeft.value):  # vim's other Esc
         return "<Esc>"
+    if ctrl and key in ZOOM_KEYS:  # Ctrl-+ is Ctrl-Shift-= on most layouts: the same key
+        return ZOOM_KEYS[key]
     text = event.text()
     return text if len(text) == 1 and text.isprintable() else None
 
@@ -1556,6 +1587,23 @@ class MainWindow(QMainWindow):
         self.show_message(f"{len(sizes)} folder(s): {human_size(sum(sizes.values()))}")
 
     # Quick view
+
+    def cmd_zoom(self, a):
+        """Ctrl-+ / Ctrl-- make every font a point bigger / smaller (a count: that many),
+        Ctrl-0 goes back to the sizes in the config; saved as "zoom"."""
+        old = self.settings.get("zoom", 0)
+        old = old if isinstance(old, (int, float)) else 0
+        step = a.n() if a.arg == "in" else -a.n() if a.arg == "out" else -old
+        base = ui_font({**self.settings, "zoom": 0}).pointSizeF()
+        zoom = zoomed(base, old + step) - base  # within ZOOM_LIMITS
+        zoom = int(zoom) if zoom == int(zoom) else round(zoom, 1)  # 3, not 3.0, in the file
+        if zoom == old and a.arg != "reset":
+            self.show_message(f"Font size {base + zoom:g} pt: as {'big' if step > 0 else 'small'} as it goes")
+            return
+        self.settings["zoom"] = zoom
+        self.apply_config()
+        self.save_settings({"zoom": zoom})
+        self.show_message(f"Font size {base + zoom:g} pt" + (f" (zoom {zoom:+g}, Ctrl-0 = back to {base:g})" if zoom else ""))
 
     def cmd_quickview(self, a):
         self.quickview = not self.quickview
@@ -4201,7 +4249,7 @@ class MainWindow(QMainWindow):
             return
         self.reload_config()
         self.show_message(f"Settings restored from {os.path.basename(chosen)}; the ones before are kept too "
-                          f"(:config backups). Window size and font apply after a restart")
+                          f"(:config backups). The window size applies after a restart")
 
     def ex_sort(self, arg):
         """:sort size, :sort -size or :sort! size (reversed)."""
@@ -5082,7 +5130,9 @@ class MainWindow(QMainWindow):
                 "mode": options.get("mode") if options.get("mode") in graphview.MODES else "tree",
                 "max_nodes": min(2000, max(50, int(options.get("max_nodes", 400)))),
             })
-            font, font_warning = monospace_font(s.get("monospace") or {})
+            if QApplication.font() != (window_font := ui_font(s)):
+                QApplication.setFont(window_font)  # family, size or zoom changed
+            font, font_warning = monospace_font(s.get("monospace") or {}, s.get("zoom", 0))
             text_font = font if (s.get("monospace") or {}).get("enabled", True) else \
                 monospace_font({})[0]  # quick view text stays monospace
             NATURAL["on"] = bool(s.get("natural_sort", True))
@@ -5303,12 +5353,9 @@ def main() -> None:
     except config.ConfigError as e:
         settings, error = config.with_defaults({}), str(e)
 
-    font = app.font()
-    if family := settings["font"].get("family"):
-        font.setFamily(family)
-    if (size := settings["font"].get("size")) and isinstance(size, (int, float)) and size > 0:
-        font.setPointSizeF(size)
-    app.setFont(font)
+    global SYSTEM_FONT
+    SYSTEM_FONT = QFont(app.font())
+    app.setFont(ui_font(settings))
 
     saved = [p for p in settings.get("panes", []) if isinstance(p, str) and os.path.isdir(p)]
     if not settings.get("restore_panes", True):

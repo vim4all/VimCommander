@@ -217,6 +217,7 @@ Keys work in the file panes. Unless noted, a count before a key repeats it or ap
 | `gG` | open the [graph](#folder-graph) of the folder under the cursor (or the current folder) in its own window |
 | `za` | show / hide hidden files; `zo` / `zm` show / hide them (as in vifm) |
 | `zi` | [thumbnail grid](#thumbnail-grid) / list for this pane |
+| `Ctrl-+` / `Ctrl--` / `Ctrl-0` | every font a point bigger / smaller / back to the sizes in the config (`Ctrl-=` works for `Ctrl-+`; a count: `3 Ctrl-+`). Saved as `zoom` |
 | ``Ctrl-` `` | show the [terminal](#terminal) and go to it; from the terminal, hide it |
 | `Ctrl-w t` | a [terminal pane](#terminal-pane): a real terminal in the other pane, in this folder (again: go into it) |
 | `gm` | [play music](#music-player): the tagged items, the folder or `.m3u` under the cursor, or the audio file under the cursor and the rest of its folder |
@@ -1044,7 +1045,7 @@ The `share` section of the config sets `port` (`0` = any free one), `minutes` an
 
 ## Configuration
 
-All settings live in one JSON file, `config.json`. Run `:config` to open it in your editor. When you save it, the app reloads it at once. Only the window size and font wait for a restart. On every start the app adds any missing options with their defaults, so the file always lists everything you can set.
+All settings live in one JSON file, `config.json`. Run `:config` to open it in your editor. When you save it, the app reloads it at once. Only the window size waits for a restart. On every start the app adds any missing options with their defaults, so the file always lists everything you can set.
 
 **Copies of your settings.** While the app saves the file, it keeps a copy of the old one in `config-backups/` next to it, at most one an hour and only when something changed; the newest 10 are kept. `:config backups` lists them (quick view shows each as a tree), `:config restore` puts back the one under the cursor, or the newest, after keeping a copy of the current file, so a restore can be undone the same way. If `config.json` is deleted while the app runs, it is written again from the settings in use, not from the defaults.
 
@@ -1071,6 +1072,7 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
   "show_hidden": false,
   "natural_sort": true,
   "syntax": true,
+  "zoom": 0,
   "git": true,
   "columns": false,
   "rules": [],
@@ -1118,6 +1120,7 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
 | `show_hidden` | show hidden files at start (`za` toggles) |
 | `natural_sort` | numbers in names sort by value, `run2` before `run10` (`:set natural`) |
 | `syntax` | code in quick view in colour, with Pygments (`:set syntax`) |
+| `zoom` | points added to every font size: `Ctrl-+` / `Ctrl--` change it, `Ctrl-0` sets it back to 0 (your `font` and `monospace` sizes) |
 | `git` | [git](#git) status colors and branch (`:set git`) |
 | `columns` | [Miller columns](#miller-columns) (`:set columns`) |
 | `player` | the [music player](#music-player): `volume` (0–100), `shuffle`, `repeat` (`"all"`, `"one"` or `"off"`), `speed` (0.25–4, `1.0` = normal); the player saves them when you change them |
@@ -1288,7 +1291,6 @@ Ideas for later, roughly in order. None of these exist yet.
 **File manager**
 
 - Changing zip files (adding, deleting and renaming inside them), and other archive formats (tar, 7z, rar).
-- Zoom keys (`Ctrl-+`, `Ctrl--`, `Ctrl-0`) to change the font size from the keyboard.
 
 ## Limitations
 
