@@ -83,6 +83,49 @@ class ConfigFileTest(unittest.TestCase):
         with open(self.path, encoding="utf-8") as f:
             self.assertEqual(json.load(f), {"a": "ü"})
 
+    def read(self, path):
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_backups(self):
+        config.save({"theme": "mine"})  # nothing to copy yet
+        self.assertEqual(config.backups(), [])
+        config.save({"theme": "second"})  # the first file is kept before it is replaced
+        [first] = config.backups()
+        self.assertEqual(self.read(first), {"theme": "mine"})
+        config.save({"theme": "third"})  # within the hour: no new copy
+        self.assertEqual(config.backups(), [first])
+        old = os.path.getmtime(first) - config.BACKUP_EVERY - 1
+        os.utime(first, (old, old))
+        config.save({"theme": "fourth"})  # an hour later: one more, newest first
+        self.assertEqual(len(config.backups()), 2)
+        self.assertEqual(self.read(config.backups()[0]), {"theme": "third"})
+        self.assertEqual(os.path.dirname(first), os.path.join(self.dir.name, "config-backups"))
+
+    def test_backup_skips_unchanged_and_prunes(self):
+        config.save({"a": 1})
+        self.assertIsNotNone(config.back_up(force=True))
+        self.assertIsNone(config.back_up(force=True))  # the same as the newest copy
+        for i in range(config.BACKUP_KEEP + 3):
+            config.save({"a": i + 2})
+            config.back_up(force=True)
+        self.assertEqual(len(config.backups()), config.BACKUP_KEEP)
+        self.assertEqual(self.read(config.backups()[0])["a"], config.BACKUP_KEEP + 4)
+
+    def test_restore(self):
+        config.save({"theme": "catppuccin-mocha", "relativenumber": True})
+        good = config.back_up(force=True)
+        config.save({"theme": ""})  # lost
+        config.restore(good)
+        self.assertEqual(config.load(), {"theme": "catppuccin-mocha", "relativenumber": True})
+        self.assertEqual(self.read(config.backups()[0]), {"theme": ""})  # the replaced one is kept
+        broken = os.path.join(self.dir.name, "config-backups", "config-broken.json")
+        with open(broken, "w") as f:
+            f.write("{oops")
+        with self.assertRaises(ValueError):
+            config.restore(broken)
+        self.assertEqual(config.load()["theme"], "catppuccin-mocha")  # untouched
+
 
 if __name__ == "__main__":
     unittest.main()

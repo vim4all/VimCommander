@@ -1,5 +1,6 @@
 """Main window: two panes, vim key dispatch, command line and status bar."""
 
+import copy
 import fnmatch
 import os
 import posixpath
@@ -285,6 +286,7 @@ HELP = """\
 &nbsp;&nbsp;:sort name|ext|size|time (-size = reverse) &nbsp; :sync (other pane goes here)
 &nbsp;&nbsp;:!CMD (run in this folder; %d %o %f %s are filled in) &nbsp; :42 (go to line) &nbsp; :help
 &nbsp;&nbsp;:shell (terminal here) &nbsp; :config (edit the config file; it reloads when saved)
+&nbsp;&nbsp;:config backups = the kept copies of the config (one an hour while it changes, 10 kept), :config restore = put back the one under the cursor
 """
 
 
@@ -3769,6 +3771,8 @@ class MainWindow(QMainWindow):
         cmd, _, arg = text.partition(" ")
         if cmd == "ssh":
             return [h for h in remote.ssh_hosts() if h.startswith(arg)], "ssh "
+        if cmd == "config":
+            return [w for w in ("backups", "restore") if w.startswith(arg)], "config "
         if cmd in ("session", "delsession", "mksession"):
             names = sorted(self.settings.get("sessions") or {})
             return [n for n in names if n.startswith(arg)], cmd + " "
@@ -4152,6 +4156,16 @@ class MainWindow(QMainWindow):
     def ex_shell(self, arg): self.cmd_shell(None)
 
     def ex_config(self, arg):
+        """:config edits the config file; :config backups lists its kept copies,
+        :config restore puts back the one under the cursor (else the newest)."""
+        word = arg.strip()
+        if word == "backups":
+            return self._config_backups()
+        if word == "restore":
+            return self._config_restore()
+        if word:
+            self.show_message(":config, :config backups or :config restore")
+            return
         path = config.config_path()
         if not os.path.exists(path):
             self.save_settings()
@@ -4159,6 +4173,34 @@ class MainWindow(QMainWindow):
             self._run(editor, [path], "the config file")
         elif not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
             self.show_message(f"Config file: {path}")
+
+    def _config_backups(self) -> None:
+        kept = config.backups()
+        if not kept:
+            self.show_message(f"No copies of the config yet (one is kept each hour it changes, in {config.backup_dir()})")
+            return
+        self.remember_jump()
+        self.show_result_list("config backups", config.backup_dir(), kept)
+        self.show_message(f"{len(kept)} copies, newest first; Ctrl-q shows one, :config restore puts it back")
+
+    def _config_restore(self) -> None:
+        entry = self.pane.current_entry()
+        folder = os.path.normcase(os.path.abspath(config.backup_dir()))
+        if entry and not entry.is_parent and os.path.normcase(os.path.dirname(os.path.abspath(entry.path))) == folder:
+            chosen = entry.path
+        elif kept := config.backups():
+            chosen = kept[0]
+        else:
+            self.show_message("No copies of the config to restore")
+            return
+        try:
+            config.restore(chosen)
+        except (OSError, ValueError) as e:
+            self.show_message(f"Not restored: {e}")
+            return
+        self.reload_config()
+        self.show_message(f"Settings restored from {os.path.basename(chosen)}; the ones before are kept too "
+                          f"(:config backups). Window size and font apply after a restart")
 
     def ex_sort(self, arg):
         """:sort size, :sort -size or :sort! size (reversed)."""
@@ -5118,6 +5160,11 @@ class MainWindow(QMainWindow):
 
     def reload_config(self) -> None:
         self._watch_config()
+        if not os.path.exists(config.config_path()):
+            # Gone: an editor saving by delete + create, or deleted. Look again in a
+            # moment; never fall back to the defaults while the settings are in memory.
+            QTimer.singleShot(500, self._config_gone)
+            return
         try:
             data = config.load()
         except config.ConfigError as e:
@@ -5130,6 +5177,14 @@ class MainWindow(QMainWindow):
             if not self.message_label.text():
                 self.show_message("Config reloaded")
 
+    def _config_gone(self) -> None:
+        if os.path.exists(config.config_path()):
+            self.reload_config()
+            return
+        self.save_settings()  # written again from the settings in use
+        self.show_message(f"The config file was deleted: written again from the settings in use "
+                          f"({config.config_path()})")
+
     def _watch_config(self) -> None:
         path = config.config_path()
         if os.path.exists(path) and path not in self.config_watcher.files():
@@ -5139,7 +5194,10 @@ class MainWindow(QMainWindow):
         """Write the app's state (and changed `options`) into the config file,
         keeping everything else in it."""
         try:
-            data = config.with_defaults(config.load())  # pick up edits made meanwhile
+            if os.path.exists(config.config_path()) or not self.settings:
+                data = config.with_defaults(config.load())  # pick up edits made meanwhile
+            else:  # deleted while running: the settings in use, not the defaults
+                data = copy.deepcopy(self.settings)
         except config.ConfigError as e:
             self.show_message(f"Settings not saved, fix the config file first: {e}")
             return

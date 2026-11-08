@@ -440,7 +440,7 @@ Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 | `:qa`, `:qall`, `:quitall`, `:wqa`, `:xa` | quit |
 | `:set OPTION` | vim options, see below: `:set rnu`, `:set nonu`, `:set nu!` (toggle), `:set ic?` (show), several at once; `:set` alone lists them. Changes are saved |
 | `:noh`, `:nohlsearch` | clear the search highlight until the next search |
-| `:config` | open the config file in the editor; changes apply when you save it |
+| `:config` | open the config file in the editor; changes apply when you save it. `:config backups` lists the [kept copies](#configuration), `:config restore` puts back the one under the cursor (or the newest) |
 | `:help [TOPIC]`, `:h` | show the key reference; with a topic, only the lines that mention it (`:h Ctrl-w`) |
 | `:map`, `:nmap`, `:vmap`, `:noremap`, `:nnoremap`, `:vnoremap`, … | [map keys to keys](#maps-and-vimcommanderrc); alone, list the maps |
 | `:unmap`, `:nunmap`, `:vunmap` / `:mapclear` | remove a map / all of them |
@@ -1044,6 +1044,8 @@ The `share` section of the config sets `port` (`0` = any free one), `minutes` an
 ## Configuration
 
 All settings live in one JSON file, `config.json`. Run `:config` to open it in your editor. When you save it, the app reloads it at once. Only the window size and font wait for a restart. On every start the app adds any missing options with their defaults, so the file always lists everything you can set.
+
+**Copies of your settings.** While the app saves the file, it keeps a copy of the old one in `config-backups/` next to it, at most one an hour and only when something changed; the newest 10 are kept. `:config backups` lists them (quick view shows each as a tree), `:config restore` puts back the one under the cursor, or the newest, after keeping a copy of the current file, so a restore can be undone the same way. If `config.json` is deleted while the app runs, it is written again from the settings in use, not from the defaults.
 
 Where the file is:
 

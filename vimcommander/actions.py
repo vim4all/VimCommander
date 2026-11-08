@@ -83,7 +83,7 @@ COMMANDS = {
     "bulkrename": ("bulkrename", "rename tagged (or all) items in an editor"),
     "cd": ("cd PATH", "change folder (- = previous)"),
     "compare": ("compare", "tag the differences between the two panes"),
-    "config": ("config", "edit the config file"),
+    "config": ("config [backups | restore]", "edit the config file; its kept copies: list them / put one back"),
     "delmarks": ("delmarks [LETTERS]", "delete marks"),
     "delsession": ("delsession NAME", "delete a saved session"),
     "dupes": ("dupes [MINSIZE] | tag [old]", "duplicate files as a list; tag all but the newest of each set"),

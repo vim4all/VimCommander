@@ -9,7 +9,10 @@ packaged build (portable mode); config.json in Qt's AppConfigLocation.
 import copy
 import json
 import os
+import re
+import shutil
 import sys
+import time
 
 from PySide6.QtCore import QStandardPaths
 
@@ -213,9 +216,82 @@ def save_undo(undo: list, redo: list) -> None:
     os.replace(tmp, path)
 
 
+BACKUP_DIR = "config-backups"  # next to config.json
+BACKUP_KEEP = 10  # copies kept, newest first
+BACKUP_EVERY = 3600  # seconds: at most one copy an hour while the app saves
+_BACKUP_NAME = re.compile(r"config-(\d{4}-\d\d-\d\d_\d{6})(?:-(\d+))?\.json$")
+
+
+def backup_dir() -> str:
+    return os.path.join(os.path.dirname(config_path()) or ".", BACKUP_DIR)
+
+
+def backups() -> list[str]:
+    """The kept copies of the config file, newest first (the names sort by time)."""
+    folder = backup_dir()
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    def age(name):  # (stamp, n): config-2026-11-08_021300.json, then -2, -3 made in the same second
+        m = _BACKUP_NAME.match(name)
+        return (m.group(1), int(m.group(2) or 1)) if m else ("", 0)  # other names: oldest
+    return [os.path.join(folder, n) for n in sorted(names, key=age, reverse=True)
+            if n.startswith("config-") and n.endswith(".json")]
+
+
+def _read_bytes(path: str) -> bytes:
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def back_up(force: bool = False) -> str | None:
+    """Copy the config file into the backups folder, unless the newest copy is less
+    than BACKUP_EVERY old (`force` skips that) or the same; keeps BACKUP_KEEP copies.
+    Returns the new copy's path, or None."""
+    path = config_path()
+    if not os.path.exists(path):
+        return None
+    kept = backups()
+    if kept and not force and time.time() - os.path.getmtime(kept[0]) < BACKUP_EVERY:
+        return None
+    if kept and _read_bytes(kept[0]) == _read_bytes(path):
+        return None  # nothing changed since
+    os.makedirs(backup_dir(), exist_ok=True)
+    stamp = time.strftime("%Y-%m-%d_%H%M%S")
+    # several in one second (forced copies): -2, -3… after the highest, so it sorts newest
+    taken = [m for m in (_BACKUP_NAME.match(os.path.basename(k)) for k in kept) if m and m.group(1) == stamp]
+    n = max((int(m.group(2) or 1) for m in taken), default=0) + 1
+    dest = os.path.join(backup_dir(), f"config-{stamp}.json" if n == 1 else f"config-{stamp}-{n}.json")
+    shutil.copyfile(path, dest)  # a new modification time: the age check counts from now
+    for old in backups()[BACKUP_KEEP:]:
+        try:
+            os.remove(old)
+        except OSError:
+            pass
+    return dest
+
+
+def restore(backup: str) -> None:
+    """Put a kept copy back as the config file; the current one is kept first."""
+    with open(backup, encoding="utf-8-sig") as f:
+        if not isinstance(json.load(f), dict):  # ValueError for broken JSON, too
+            raise ValueError(f"{backup}: not a settings file")
+    back_up(force=True)
+    path = config_path()
+    tmp = path + ".tmp"
+    shutil.copyfile(backup, tmp)
+    os.replace(tmp, path)
+
+
 def save(data: dict) -> None:
+    """Write the config file, keeping a copy of the old one now and then (back_up)."""
     path = config_path()
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    try:
+        back_up()
+    except OSError:
+        pass  # a copy that can't be made never stops the settings being saved
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
