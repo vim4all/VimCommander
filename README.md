@@ -104,7 +104,7 @@ The screenshots show a made-up home folder; `tools/screenshots.py` makes it and 
 
 **Windows, ready to run**: download `VimCommander-*-windows-x64.zip` from the [latest release](https://github.com/vim4all/VimCommander/releases/latest), unzip it anywhere and start `VimCommander.exe`. No Python needed. The settings are kept in `config.json` next to the exe (portable). Windows SmartScreen may warn the first time, because the exe isn't signed: *More info* → *Run anyway*.
 
-**From source** you need **Python 3.10 or newer**. The dependencies are [PySide6](https://doc.qt.io/qtforpython-6/) (Qt for Python, about 200–300 MB installed), [paramiko](https://www.paramiko.org/) for [SSH folders](#ssh-folders), [segno](https://segno.readthedocs.io/) for the QR code of [`:share`](#share-with-a-phone), [PyYAML](https://pyyaml.org/) for [YAML trees](#json-and-yaml) and [numpy](https://numpy.org/) for a fast wireframe of big [3D models](#3d-models) (optional). The [music player](#music-player) uses QtMultimedia from `PySide6-Addons` (in requirements.txt; without it everything else still works).
+**From source** you need **Python 3.10 or newer**. The dependencies are [PySide6](https://doc.qt.io/qtforpython-6/) (Qt for Python, about 200–300 MB installed), [paramiko](https://www.paramiko.org/) for [SSH folders](#ssh-folders), [segno](https://segno.readthedocs.io/) for the QR code of [`:share`](#share-with-a-phone), [PyYAML](https://pyyaml.org/) for [YAML trees](#json-and-yaml), [Pygments](https://pygments.org/) for code in colour and [numpy](https://numpy.org/) for a fast wireframe of big [3D models](#3d-models) (optional). The [music player](#music-player) uses QtMultimedia from `PySide6-Addons` (in requirements.txt; without it everything else still works).
 
 **Linux / macOS**
 
@@ -463,6 +463,7 @@ Vim's command-line keys work on the `:`, `/`, `?` and `=` lines:
 | `columns` | off | [Miller columns](#miller-columns): parent folder, list and preview in each pane |
 | `git` | on | [git](#git) status colors and the branch in the header |
 | `natural` | on | numbers in names sort by value: `run2` before `run10`. Off: plain text order |
+| `syntax` (`syn`) | on | code in [quick view](#quick-view) in colour (needs [Pygments](https://pygments.org/)) |
 | `clipboard` (`cb`) | `""` | `unnamedplus` (or `unnamed`): plain `y`, `d` and `p` use the system clipboard, as in vim. `:set clipboard=` turns it off |
 
 These switch views for this session only (they aren't saved), so `:set plot!`, `:set grid?` and `:set noqv` work like any option:
@@ -476,7 +477,7 @@ These switch views for this session only (they aren't saved), so `:set plot!`, `
 | `linkpanes` (`lp`) | `:linkpanes`: [linked panes](#linked-panes) |
 | `bar` | `:bar`: the [launch bar](#launch-bar) |
 
-`:set` saves them to the config file, where they are the top-level `number`, `relativenumber`, `ignorecase`, `smartcase`, `hlsearch`, `wrapscan`, `clipboard`, `show_hidden`, `columns`, `git` and `natural_sort` options.
+`:set` saves them to the config file, where they are the top-level `number`, `relativenumber`, `ignorecase`, `smartcase`, `hlsearch`, `wrapscan`, `clipboard`, `show_hidden`, `columns`, `git`, `natural_sort` and `syntax` options.
 
 ## Finding files and folders
 
@@ -734,7 +735,7 @@ Programs start in the active pane's folder. On the first run the bar is filled w
 | Item | Shows |
 |---|---|
 | folder, or `..` for the current one | a [folder graph](#folder-graph) (`:graph off`: a short summary) |
-| text file | its first 256 KB |
+| text file | its first 256 KB; source code in colour (C, C++, Python, Rust, Go, JavaScript, shell, Makefiles, CMake and the other languages [Pygments](https://pygments.org/) knows; `:set nosyntax` turns it off) |
 | image | the picture, scaled to fit |
 | PDF | the first pages, rendered |
 | Markdown note | rendered; Obsidian `[[links]]` and embedded images work, click a link to go to that note. Also understands [md2doc](https://github.com/vim4all/DCR_MD_to_PDF) documents: front matter as a title block, colored callouts (`> **WARNING** …`, `> [!note]`), tables with shaded cells (`<!--bg:best-->`), footnotes, task lists, simple `$math$`, and mermaid / matplotlib blocks as figures: the PNGs md2doc made next to the note, or mermaid drawn by [mermaid-cli](https://github.com/mermaid-js/mermaid-cli) (`mmdc` on the PATH) into the cache |
@@ -1069,6 +1070,7 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
   "theme": "",
   "show_hidden": false,
   "natural_sort": true,
+  "syntax": true,
   "git": true,
   "columns": false,
   "rules": [],
@@ -1115,6 +1117,7 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
 | `monospace` | monospace font for the file lists, path headers, command line, status bar and quick view. `family` `""` picks the first installed of Cascadia Mono, Consolas, JetBrains Mono, SF Mono, Menlo, DejaVu Sans Mono, …; `size` `0` = same size as the window font; `"enabled": false` uses the window font instead |
 | `show_hidden` | show hidden files at start (`za` toggles) |
 | `natural_sort` | numbers in names sort by value, `run2` before `run10` (`:set natural`) |
+| `syntax` | code in quick view in colour, with Pygments (`:set syntax`) |
 | `git` | [git](#git) status colors and branch (`:set git`) |
 | `columns` | [Miller columns](#miller-columns) (`:set columns`) |
 | `player` | the [music player](#music-player): `volume` (0–100), `shuffle`, `repeat` (`"all"`, `"one"` or `"off"`), `speed` (0.25–4, `1.0` = normal); the player saves them when you change them |

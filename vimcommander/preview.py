@@ -15,13 +15,13 @@ from typing import TYPE_CHECKING
 from datetime import datetime
 
 from PySide6.QtCore import QByteArray, QObject, QSize, QStandardPaths, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import (QDesktopServices, QFontDatabase, QImage, QImageIOHandler, QImageReader, QPalette, QPixmap, QTextCursor,
-                           QTextDocument, QTextFormat)
+from PySide6.QtGui import (QColor, QDesktopServices, QFont, QFontDatabase, QImage, QImageIOHandler, QImageReader, QPalette,
+                           QPixmap, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextDocument, QTextFormat)
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QLabel, QPlainTextEdit, QScrollArea, QSizePolicy,
                                QStackedWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
 from . import (archive, cubemx, graphview, jsontree, ltspice, mdnotes, mdrender, memmap, notebook, pdftools, remote,
-               step, stl, tabular)
+               step, stl, syntax, tabular)
 
 if TYPE_CHECKING:  # made on first use, see QuickView._view()
     from .jsonview import JsonView
@@ -44,6 +44,9 @@ PDF_PAGES = 30  # pages rendered in the preview
 HEX_LIMIT = 64 * 1024  # bytes shown in the hex view
 HEX = {"on": False}  # :hex: every file in hex, not only binary ones
 PLOT = {"on": False}  # zp: CSV files as a plot instead of a table
+SYNTAX = {"on": True}  # :set syntax: code in colour (with Pygments)
+SYNTAX_FIRST_LINES = 300  # coloured first, before the rest of a long file
+HIGHLIGHT_CHUNK = 300  # lines coloured per event-loop turn
 ARCHIVE_PLOT_LIMIT = 256 * 1024 * 1024  # a CSV inside a zip is read up to this for a plot
 STEP_LIMIT = 256 * 1024 * 1024  # bigger STEP models show as text
 NOTEBOOK_LIMIT = 64 * 1024 * 1024  # bigger notebooks show as text
@@ -436,6 +439,65 @@ class MarkdownView(QTextBrowser):
             self.open_requested.emit(path)
 
 
+class CodeHighlighter(QSyntaxHighlighter):
+    """Colours the quick view's text from syntax.spans(), worked out in a thread:
+    each block (line) takes the runs of its number. New spans are applied
+    HIGHLIGHT_CHUNK lines per event-loop turn, so a long file never blocks the
+    window; `applied` (an Event) is set when all are."""
+
+    def __init__(self, document):
+        super().__init__(document)
+        self.spans: list = []
+        self.formats: dict[str, QTextCharFormat] = {}
+        self.applied = threading.Event()
+        self._next = 0
+        self._timer = QTimer(self, interval=0)
+        self._timer.timeout.connect(self._step)
+
+    def set_spans(self, spans: list, dark: bool, applied: threading.Event | None = None) -> None:
+        self.formats = {}
+        for cat, color in syntax.palette(dark).items():
+            f = QTextCharFormat()
+            f.setForeground(QColor(color))
+            if cat in syntax.ITALIC:
+                f.setFontItalic(True)
+            if cat in syntax.BOLD:
+                f.setFontWeight(QFont.Weight.Bold)
+            self.formats[cat] = f
+        self.spans, self._next = spans, 0
+        self.applied = applied or threading.Event()
+        self._timer.start()
+
+    def clear_spans(self) -> None:
+        """No colours (before other text is shown, so the old ones never flash on it)."""
+        self.spans = []
+        self._timer.stop()
+        self.applied.set()  # nothing more to wait for
+
+    def _step(self) -> None:
+        doc = self.document()
+        end = min(self._next + HIGHLIGHT_CHUNK, len(self.spans), doc.blockCount())
+        block = doc.findBlockByNumber(self._next)
+        while block.isValid() and block.blockNumber() < end:
+            self.rehighlightBlock(block)
+            block = block.next()
+        self._next = end
+        if end >= min(len(self.spans), doc.blockCount()):
+            self._timer.stop()
+            self.applied.set()
+
+    def highlightBlock(self, text):
+        n = self.currentBlock().blockNumber()
+        if n < len(self.spans):
+            formats = self.formats
+            for start, length, cat in self.spans[n]:
+                self.setFormat(start, length, formats[cat])
+
+
+class _SyntaxLoader(QObject):
+    done = Signal(int, object)  # token, (spans, an Event to set once they are applied, or None)
+
+
 class CsvView(QTableWidget):
     """A CSV file as a table; hovering a column header shows the column's summary."""
 
@@ -479,6 +541,11 @@ class QuickView(QWidget):
         self.text.setReadOnly(True)
         self.text.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.text.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        self.highlighter = CodeHighlighter(self.text.document())
+        self._syntax_token = 0
+        self._syntax_stop = threading.Event()
+        self._syntax_loader = _SyntaxLoader()
+        self._syntax_loader.done.connect(self._syntax_done)
         self.image = ImageLabel()
         self.info = QLabel()
         self.info.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
@@ -574,6 +641,7 @@ class QuickView(QWidget):
 
     def clear(self) -> None:
         self.current = None
+        self._stop_syntax()
         self.text.clear()
         self.image.set_image(QImage())
         self.graph.stop()
@@ -597,6 +665,7 @@ class QuickView(QWidget):
         if not path.lower().endswith(".pdf") or is_dir:
             self.pdf.stop()
         self._stop_views()
+        self._stop_syntax()
         if remote.is_remote(path):
             self.graph.stop()
             try:
@@ -904,8 +973,61 @@ class QuickView(QWidget):
             self.markdown.show_note(text, local)
             self.stack.setCurrentWidget(self.markdown)
         else:
-            self.text.setPlainText(text)
+            self._show_code(text, path)
             self.stack.setCurrentWidget(self.text)
+
+    def _show_code(self, text: str, path: str) -> None:
+        """Text, then its colours (code Pygments knows): a thread finds the lexer and
+        colours the first SYNTAX_FIRST_LINES lines (what shows), then all of it."""
+        text = text.replace("\r\n", "\n").replace("\r", "\n")  # lines as the lexer sees them
+        self.text.setPlainText(text)
+        if not SYNTAX["on"] or not syntax.available():
+            return
+        token, stop = self._syntax_token, self._syntax_stop
+
+        def work():
+            try:
+                lexer = syntax.lexer_for(path, text[:256])
+                if lexer is None or stop.is_set():
+                    return
+                cut = -1
+                for _ in range(SYNTAX_FIRST_LINES):
+                    cut = text.find("\n", cut + 1)
+                    if cut < 0:
+                        break
+                if cut >= 0:  # long: the start first, to colour what shows at once
+                    first = syntax.spans(text[:cut], lexer, stop)
+                    if first is None:
+                        return
+                    applied = threading.Event()
+                    self._syntax_loader.done.emit(token, (first, applied))
+                    # Wait while the window colours them: lexing meanwhile would make each of
+                    # its per-line Python calls wait for the GIL (seconds for a long file).
+                    while not applied.wait(0.05):
+                        if stop.is_set():
+                            return
+                found = syntax.spans(text, lexer, stop)
+            except Exception:  # a lexer bug: the text stays plain
+                return
+            if found is not None:
+                self._syntax_loader.done.emit(token, (found, None))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _syntax_done(self, token: int, result) -> None:
+        spans, applied = result
+        if token != self._syntax_token:
+            if applied is not None:
+                applied.set()  # a stale thread: don't keep it waiting
+            return
+        dark = self.text.palette().color(QPalette.ColorRole.Base).lightness() < 128
+        self.highlighter.set_spans(spans, dark, applied)
+
+    def _stop_syntax(self) -> None:
+        self._syntax_token += 1
+        self._syntax_stop.set()
+        self._syntax_stop = threading.Event()
+        self.highlighter.clear_spans()
 
     def _csv(self, text: str, size: int, path: str) -> None:
         table = tabular.parse(text, path, truncated=size > TEXT_LIMIT)

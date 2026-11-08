@@ -141,6 +141,11 @@ def _mocha() -> dict:
         "terminal": [m["surface1"], m["red"], m["green"], m["yellow"], m["blue"], m["pink"], m["teal"],
                      m["subtext1"], m["surface2"], m["red"], m["green"], m["yellow"], m["blue"], m["pink"],
                      m["teal"], m["subtext0"]],
+        # code in quick view, as Catppuccin's own editor themes colour it
+        "syntax": {"keyword": m["mauve"], "type": m["yellow"], "function": m["blue"], "string": m["green"],
+                   "number": m["peach"], "comment": m["overlay2"], "preproc": m["pink"], "constant": m["peach"],
+                   "decorator": m["peach"], "tag": m["mauve"], "attribute": m["yellow"], "heading": m["blue"],
+                   "error": m["red"]},
     }
 
 
@@ -173,7 +178,7 @@ def _rgba(spec) -> QColor:
 def apply(name: str) -> bool:
     """Switch the app to theme `name` ("" = system). False if there is no such theme."""
     global _current
-    from . import activity, diffview, graphview, grepdialog, sync, termshell  # they import Qt widgets
+    from . import activity, diffview, graphview, grepdialog, sync, syntax, termshell  # they import Qt widgets
     name = ALIASES.get(str(name or "").strip().lower(), str(name or "").strip().lower())
     if name and name not in THEMES:
         return False
@@ -201,6 +206,7 @@ def apply(name: str) -> bool:
         sync.ACTION_COLORS.update(_system["sync"])
         activity.BASE_COLOR = _system["activity"]
         termshell.ANSI[:] = termshell.DEFAULT_ANSI
+        syntax.THEME = None  # light or dark by the background
     else:
         t = THEMES[name]()
         QApplication.setStyle("Fusion")
@@ -221,5 +227,6 @@ def apply(name: str) -> bool:
         sync.ACTION_COLORS.update({k: QColor(v) for k, v in t["sync"].items()})
         activity.BASE_COLOR = QColor(t["activity"])
         termshell.ANSI[:] = t["terminal"]
+        syntax.THEME = t["syntax"]
     _current = name
     return True

@@ -110,6 +110,7 @@ BOOL_OPTIONS = {
     "hlsearch": ("hlsearch", ("hls",)), "wrapscan": ("wrapscan", ("ws",)),
     "hidden": ("show_hidden", ()),
     "columns": ("columns", ()), "git": ("git", ()), "natural": ("natural_sort", ()),
+    "syntax": ("syntax", ("syn",)),
 }
 # :set options of this session's views (not saved): name -> short names
 RUNTIME_OPTIONS = {"hex": (), "plot": (), "grid": (), "quickview": ("qv",), "linkpanes": ("lp",), "bar": ()}
@@ -270,7 +271,7 @@ HELP = """\
 &nbsp;&nbsp;on save, Ctrl-` = a shell there), :mirror = make the other pane a copy of this one, :ssh close
 <b>FTP</b>: :ftp [user@]host[/path] (no user = anonymous, ftps://host = TLS), same keys as SSH, no shell
 <b>Jobs</b>: copies and moves wait in a queue; :jobs = the panel (pause, cancel, run next), :jobs pause / resume
-&nbsp;&nbsp;:set nu / rnu / ic / scs / hls / ws / hidden / natural (no… to turn off, …! to toggle, …? to show)
+&nbsp;&nbsp;:set nu / rnu / ic / scs / hls / ws / hidden / natural / syntax (no… to turn off, …! to toggle, …? to show)
 &nbsp;&nbsp;:set hex / plot / grid / qv / lp / bar = views for this session (quick view, linked panes)
 &nbsp;&nbsp;command line: Up/Down history, Ctrl-w word, Ctrl-u line, Ctrl-r Ctrl-f file name, Ctrl-r Ctrl-p path
 &nbsp;&nbsp;Ctrl-r a = the paths in register a (Ctrl-r " the last yank, Ctrl-r : the last command, Ctrl-r / the last search)
@@ -5085,6 +5086,12 @@ class MainWindow(QMainWindow):
             text_font = font if (s.get("monospace") or {}).get("enabled", True) else \
                 monospace_font({})[0]  # quick view text stays monospace
             NATURAL["on"] = bool(s.get("natural_sort", True))
+            if preview.SYNTAX["on"] != bool(s.get("syntax", True)):
+                preview.SYNTAX["on"] = bool(s.get("syntax", True))
+                for pane in self.panes:
+                    for view in (pane.preview, pane.column_preview):
+                        view.current = None  # show it again, with or without colours
+                QTimer.singleShot(0, self.show_quickview)
             for pane in self.panes:
                 pane.configure(s)
                 pane.set_font(font, text_font)

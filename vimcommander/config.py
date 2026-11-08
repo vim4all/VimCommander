@@ -64,6 +64,7 @@ DEFAULTS = {
     "graph": {"enabled": True, "depth": 2, "size_by": "size", "mode": "tree", "max_nodes": 400},
     "show_hidden": False,
     "natural_sort": True,  # numbers in names in counting order: file2 before file10 (:set nonatural)
+    "syntax": True,  # code in colour in quick view, with Pygments (:set nosyntax)
     "git": True,  # color files by their git status and show the branch (needs git)
     "columns": False,  # Miller columns: parent folder | list | preview (:set columns)
     "thumbnail_size": 128,  # thumbnail grid (zi), 48-320; Ctrl+wheel changes it

@@ -224,6 +224,30 @@ class QuickViewTest(unittest.TestCase):
         self.wait(lambda: self.view.stack.currentWidget() is self.view.text)
         self.assertIs(self.view.stack.currentWidget(), self.view.text)  # someone else's .raw: hex
 
+    def test_code_colours(self):
+        from vimcommander import syntax
+        if not syntax.available():
+            self.skipTest("Pygments isn't installed")
+        view = self.view
+        view.show_path(self.write("main.c", b"/* note */\r\nint main(void) { return 1; }\r\n"))
+        self.assertIs(view.stack.currentWidget(), view.text)
+        self.wait(lambda: view.highlighter.spans and view.highlighter.applied.is_set())
+        self.assertEqual(view.text.toPlainText(), "/* note */\nint main(void) { return 1; }\n")
+        first = view.text.document().firstBlock()
+        formats = first.layout().formats()
+        self.assertTrue(formats and formats[0].format.fontItalic())  # the comment
+        # another file: no colours left over, not even for a moment
+        view.show_path(self.write("notes.txt", b"/* not code */\n"))
+        self.assertEqual(view.highlighter.spans, [])
+        self.assertEqual(view.text.document().firstBlock().layout().formats(), [])
+        # :set nosyntax
+        preview.SYNTAX["on"] = False
+        self.addCleanup(preview.SYNTAX.update, {"on": True})
+        view.show_path(self.write("b.c", b"int x;\n"))
+        self.wait(lambda: False, ms=300)  # a thread, had one started, would have answered
+        self.assertEqual(view.highlighter.spans, [])
+        self.assertEqual(view.text.document().firstBlock().layout().formats(), [])
+
     def test_json_tree(self):
         from PySide6.QtTest import QTest
         from PySide6.QtCore import Qt
