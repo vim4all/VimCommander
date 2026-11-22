@@ -62,13 +62,21 @@ class Zoxide:
 
     def query(self, keywords: list[str], exclude: str = "") -> str | None:
         """The best match for the keywords, or None. Raises OSError if zoxide fails to run."""
-        args = ["query"] + (["--exclude", exclude] if exclude else []) + ["--", *keywords]
+        # `query --list` (best first) and skipping `exclude` here, not `--exclude`:
+        # zoxide < 0.5 (Ubuntu 22.04 ships 0.4.3) rejects --exclude, and the
+        # error looked like "no match"
         try:
-            result = self._run(*args)
+            result = self._run("query", "--list", "--", *keywords)
         except subprocess.SubprocessError as e:
             raise OSError(str(e)) from e
-        path = result.stdout.strip()
-        return path if result.returncode == 0 and path else None
+        if result.returncode != 0:
+            return None
+        skip = os.path.normcase(os.path.normpath(exclude)) if exclude else None
+        for line in result.stdout.splitlines():
+            path = line.strip()
+            if path and os.path.normcase(os.path.normpath(path)) != skip:
+                return path
+        return None
 
     def list(self) -> list[tuple[float, str]]:
         """All folders in the database as (score, path), best first."""
