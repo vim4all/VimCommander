@@ -3,7 +3,7 @@
     .venv/bin/python tools/screenshots.py
 
 Linux (or WSL) with git installed; it runs headless (QT_QPA_PLATFORM=offscreen)
-and builds the demo folder in build/demo, with HOME pointing there.
+and builds the demo folder in the temp folder (vimcommander-demo), with HOME pointing there.
 """
 import math
 import os
@@ -11,11 +11,13 @@ import random
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCS = os.path.join(ROOT, "docs")
-DEMO = os.path.join(ROOT, "build", "demo")
+# outside the checkout, so its git repo doesn't show around the demo folders
+DEMO = os.path.join(tempfile.gettempdir(), "vimcommander-demo")
 HOME = os.path.join(DEMO, "home")
 shutil.rmtree(DEMO, ignore_errors=True)
 os.makedirs(os.path.join(DEMO, "xdg"))
@@ -143,6 +145,186 @@ shutil.copytree(os.path.join(ROOT, "vimcommander"), os.path.join(HOME, "projects
                 ignore=shutil.ignore_patterns("__pycache__"))
 shutil.copy(os.path.join(ROOT, "main.py"), os.path.join(HOME, "projects", "vimcommander"))
 
+# an STM32 firmware project: code, a linker map, a scope capture, a 3D part, a README
+FW = "projects/charger-fw"
+write(f"{FW}/Core/Src/main.c", """/* Wireless charger controller: STM32F411, 100 kHz full-bridge inverter */
+#include "main.h"
+#include "control.h"
+#include <math.h>
+
+#define F_SW_HZ        100000u   /* switching frequency */
+#define V_BAT_MAX_MV   4200u
+#define ADC_TO_MV(x)   ((x) * 3300u / 4095u)
+
+static volatile uint16_t adc_buf[4];
+static pi_t current_loop = { .kp = 0.08f, .ki = 1200.0f, .limit = 0.45f };
+
+static void set_duty(float d)
+{
+    uint32_t arr = __HAL_TIM_GET_AUTORELOAD(&htim1);
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, (uint32_t)(d * arr));
+}
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
+{
+    float i_rx = ADC_TO_MV(adc_buf[1]) * 0.002f;      /* 2 mA per mV */
+    float duty = pi_step(&current_loop, I_REF_A - i_rx, 1.0f / F_SW_HZ);
+    set_duty(duty);
+}
+
+int main(void)
+{
+    HAL_Init();
+    SystemClock_Config();
+    MX_GPIO_Init();
+    MX_ADC1_Init();
+    MX_TIM1_Init();
+
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_buf, 4);
+    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+
+    while (1) {
+        if (ADC_TO_MV(adc_buf[2]) >= V_BAT_MAX_MV) {
+            set_duty(0.0f);                             /* charged: stop */
+            HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+        }
+        HAL_Delay(10);
+    }
+}
+""", days_ago=1)
+write(f"{FW}/Core/Src/control.c", "#include \"control.h\"\n", size=2400, days_ago=2)
+write(f"{FW}/Core/Inc/main.h", "#pragma once\n", size=1800, days_ago=5)
+write(f"{FW}/Core/Inc/control.h", "#pragma once\n", size=600, days_ago=5)
+
+
+def _map():
+    objs = [  # (section, name, object, size, region)
+        (".text", "main", "Core/Src/main.o", 0x5a4, "FLASH"),
+        (".text", "pi_step", "Core/Src/control.o", 0x1e8, "FLASH"),
+        (".text", "HAL_TIM_PWM_Start", "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.o", 0x1c40, "FLASH"),
+        (".text", "HAL_ADC_Start_DMA", "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_adc.o", 0x1380, "FLASH"),
+        (".text", "HAL_RCC_OscConfig", "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc.o", 0xd70, "FLASH"),
+        (".text", "HAL_DMA_Start_IT", "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dma.o", 0x9c0, "FLASH"),
+        (".text", "HAL_GPIO_Init", "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_gpio.o", 0x4d0, "FLASH"),
+        (".text", "HAL_UART_Transmit", "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.o", 0x1720, "FLASH"),
+        (".text", "sinf", "d:/gcc/lib\\libm.a(lib_a-sf_sin.o)", 0x6b0, "FLASH"),
+        (".text", "_printf_float", "d:/gcc/lib\\libc_nano.a(lib_a-nano-vfprintf_float.o)", 0x2f8c, "FLASH"),
+        (".text", "memcpy", "d:/gcc/lib\\libc_nano.a(lib_a-memcpy.o)", 0xfe, "FLASH"),
+        (".rodata", "sine_table", "Core/Src/control.o", 0x1000, "FLASH"),
+        (".rodata", "AHBPrescTable", "Drivers/CMSIS/system_stm32f4xx.o", 0x10, "FLASH"),
+        (".data", "current_loop", "Core/Src/main.o", 0x14, "RAM"),
+        (".data", "SystemCoreClock", "Drivers/CMSIS/system_stm32f4xx.o", 0x4, "RAM"),
+        (".bss", "adc_buf", "Core/Src/main.o", 0x8, "RAM"),
+        (".bss", "log_ring", "Core/Src/control.o", 0x2000, "RAM"),
+        (".bss", "htim1", "Core/Src/main.o", 0x48, "RAM"),
+        (".bss", "huart2", "Core/Src/main.o", 0x88, "RAM"),
+    ]
+    out = ["Archive member included to satisfy reference by file (symbol)", "", "Memory Configuration", "",
+           "Name             Origin             Length             Attributes",
+           "RAM              0x0000000020000000 0x0000000000020000 xrw",
+           "FLASH            0x0000000008000000 0x0000000000080000 xr",
+           "*default*        0x0000000000000000 0xffffffffffffffff", "", "Linker script and memory map", "",
+           ".isr_vector     0x0000000008000000      0x198",
+           " .isr_vector    0x0000000008000000      0x198 Core/Startup/startup_stm32f411retx.o", ""]
+    addr = {"FLASH": 0x08000198, "RAM": 0x20000000}
+    for sec in (".text", ".rodata", ".data", ".bss"):
+        items = [o for o in objs if o[0] == sec]
+        region = items[0][4]
+        start, total = addr[region], sum(o[3] for o in items)
+        load = f" load address 0x{addr['FLASH']:016x}" if sec == ".data" else ""
+        out.append(f"{sec:<15} 0x{start:016x} {total:#10x}{load}")
+        a = start
+        for _, name, obj, size, _ in items:
+            out += [f" {sec}.{name}", f"                0x{a:016x} {size:#10x} {obj}",
+                    f"                0x{a:016x}                {name}"]
+            a += size
+        out.append("")
+        addr[region] = start + total
+        if sec == ".data":
+            addr["FLASH"] += total
+    out += ["._user_heap_stack", f"                0x{addr['RAM']:016x}     0x1600",
+            f" *fill*         0x{addr['RAM']:016x}     0x1600 ", ""]
+    return "\n".join(out) + "\n"
+
+
+write(f"{FW}/Debug/charger-fw.map", _map(), days_ago=1)
+write(f"{FW}/Debug/charger-fw.elf", "", size=412_000, days_ago=1)
+write(f"{FW}/Debug/charger-fw.bin", "", size=38_400, days_ago=1)
+
+rows = ["Time,Inverter,Coil current,Vout", "s,V,A,V"]
+for i in range(2400):
+    t = i * 2e-7
+    v = 24.0 if (t * 1e5) % 1 < 0.5 else -24.0
+    rows.append(f"{t:.7f},{v:.2f},{3.1 * math.sin(2 * math.pi * 1e5 * t - 0.6):.4f},"
+                f"{4.2 * (1 - math.exp(-t / 1.2e-4)) + 0.05 * math.sin(2 * math.pi * 2e5 * t):.4f}")
+write(f"{FW}/measurements/scope_100kHz.csv", "\n".join(rows) + "\n", days_ago=3)
+
+
+def _gear(teeth=24, r_out=20.0, r_root=17.0, r_hole=5.0, h=6.0):
+    """An ASCII STL spur gear with a bore: its outline and the hole as rings of points."""
+    n = teeth * 4
+    outer, hole = [], []
+    for k in range(n):
+        a = 2 * math.pi * k / n
+        r = r_out if k % 4 in (1, 2) else r_root
+        outer.append((r * math.cos(a), r * math.sin(a)))
+        hole.append((r_hole * math.cos(a), r_hole * math.sin(a)))
+    tris = []
+    for k in range(n):
+        o0, o1, i0, i1 = outer[k], outer[(k + 1) % n], hole[k], hole[(k + 1) % n]
+        for z, flip in ((h, False), (0.0, True)):  # top and bottom rings
+            for t in (((*o0, z), (*o1, z), (*i1, z)), ((*o0, z), (*i1, z), (*i0, z))):
+                tris.append(t[::-1] if flip else t)
+        for p, q, out in ((o0, o1, True), (i0, i1, False)):  # outer flank and bore wall
+            t1 = ((*p, 0.0), (*q, 0.0), (*q, h))
+            t2 = ((*p, 0.0), (*q, h), (*p, h))
+            tris += [t1, t2] if out else [t1[::-1], t2[::-1]]
+    lines = ["solid gear"]
+    for t in tris:
+        lines += ["  facet normal 0 0 0", "    outer loop"]
+        lines += [f"      vertex {x:.4f} {y:.4f} {z:.4f}" for x, y, z in t]
+        lines += ["    endloop", "  endfacet"]
+    return "\n".join(lines + ["endsolid gear"]) + "\n"
+
+
+write(f"{FW}/mechanics/coil_gear.stl", _gear(), days_ago=6)
+write(f"{FW}/.gitignore", "Debug/*.elf\nDebug/*.bin\n")
+write(f"{FW}/README.md", """# Charger firmware
+
+Firmware for a **100 kHz wireless charger** (STM32F411): a full-bridge inverter,
+a PI current loop on the receiver side and CC/CV charging of a Li-ion cell.
+
+> [!note]
+> Build with STM32CubeIDE 1.16 or `make`. Flash over ST-Link: `make flash`.
+
+## Status
+
+| Block | State | Notes |
+|---|---|---|
+| Inverter PWM | done | TIM1, dead time 120 ns |
+| Current loop | done | PI, 100 kHz ADC trigger |
+| CV phase | testing | taper at 4.2 V |
+| Foreign object detection | todo | Q-factor method |
+
+## Next
+
+- [x] Soft start of the inverter
+- [x] Over-temperature shutdown
+- [ ] Foreign object detection
+- [ ] Log over UART at 1 kHz
+
+```c
+float duty = pi_step(&current_loop, I_REF_A - i_rx, 1.0f / F_SW_HZ);
+```
+""", days_ago=0)
+fw_git = ["git", "-C", os.path.join(HOME, FW)]
+subprocess.run(fw_git + ["init", "-q", "-b", "main"], check=True)
+subprocess.run(fw_git + ["add", "-A"], check=True)
+subprocess.run(fw_git + ["commit", "-q", "-m", "first version"], check=True)
+with open(os.path.join(HOME, FW, "Core/Src/main.c"), "a") as f:
+    f.write("/* TODO: foreign object detection */\n")
+write(f"{FW}/measurements/scope_150kHz.csv", "Time,Vout\n0,0\n", size=64_000, days_ago=0)
+
 from vimcommander import app as A, config, graphview
 
 
@@ -159,11 +341,15 @@ def wait_for(cond, ms=15000):
 
 
 def save(widget, name):
+    if hasattr(widget, "show_message"):
+        widget.show_message("")
+        widget.update_status()
+        wait(50)
     widget.grab().save(os.path.join(DOCS, name))
     print("saved", name)
 
 
-settings = config.with_defaults({"which_key_delay": 0, "monospace": {"family": "DejaVu Sans Mono", "size": 10},
+settings = config.with_defaults({"theme": "catppuccin-mocha", "which_key_delay": 0, "monospace": {"family": "DejaVu Sans Mono", "size": 10},
                                  "graph": {"depth": 2}})
 H = lambda rel: os.path.join(HOME, *rel.split("/"))
 w = A.MainWindow(H(site), H("Photos"), settings)
@@ -311,6 +497,52 @@ wait(400)
 save(w, "results-shelf.png")
 w.shelf.hide()
 w.shelf.clear()
+
+# 7. Quick view of the newer previews, in the firmware project
+from vimcommander.palette import PaletteDialog
+
+
+def quick(folder, name, shot, wait_ms=1500, plot=False):
+    left.cd(H(folder))
+    w.activate(0)
+    left.set_cursor(left.model.row_of(name))
+    right.cd(H(FW))
+    w.cmd_quickview(None)
+    if plot:
+        w.cmd_plot(None)
+    wait(wait_ms)
+    save(w, shot)
+    if plot:
+        w.cmd_plot(None)
+    w.cmd_quickview(None)
+
+
+quick(FW + "/Core/Src", "main.c", "code.png")
+quick(FW + "/Debug", "charger-fw.map", "memmap.png")
+quick(FW + "/measurements", "scope_100kHz.csv", "plot.png", plot=True)
+quick(FW + "/mechanics", "coil_gear.stl", "model.png", 3000)
+quick(FW, "README.md", "markdown.png")
+
+# 8. Which-key after g, and the command palette
+left.cd(H(FW))
+right.cd(H(site))
+w.activate(0)
+left.set_cursor(left.model.row_of("Core"))
+w.feed_key("g")
+title, entries = w.whichkey_entries()
+w.whichkey.show_entries(title, entries, w.info_label)
+wait(400)
+save(w, "whichkey.png")
+w.engine.reset()
+w.whichkey.hide()
+
+p = PaletteDialog(w.palette_entries(), w, w.cmdline.font())
+p.resize(760, 440)
+p.show()
+p.query.setText("sync")
+wait(400)
+save(p, "palette.png")
+p.close()
 w.terminal.stop()
 w.close()
 print("done")

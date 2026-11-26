@@ -1,153 +1,218 @@
+<div align="center">
+
 # VimCommander
 
-**A two-pane graphical file manager that you drive with vim keys.**
+**A two-pane graphical file manager you drive with vim keys.**
 
-VimCommander combines the layout of Total Commander with the keyboard of [vifm](https://vifm.info/) and vim, in a normal desktop window. It also supports drag and drop, a launch bar for folders and programs, and Nerd Font file icons. You can do everything from the keyboard (`j`/`k`, `gg`, `yy`/`p`, `:cd`, marks, counts) or with the mouse, and it runs on Windows, macOS and Linux.
+Total Commander's layout · vim's keyboard · previews for everything from code to linker maps and 3D models
 
-![VimCommander: a home folder on the left, its folder graph in quick view on the right](docs/graph-tree.png)
+[![Release](https://img.shields.io/github/v/release/vim4all/VimCommander?style=flat-square&color=89b4fa&labelColor=1e1e2e)](https://github.com/vim4all/VimCommander/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-a6e3a1?style=flat-square&labelColor=1e1e2e)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-f9e2af?style=flat-square&labelColor=1e1e2e&logo=python&logoColor=f9e2af)](#installation)
+[![Qt 6](https://img.shields.io/badge/Qt-PySide6-a6e3a1?style=flat-square&labelColor=1e1e2e&logo=qt&logoColor=a6e3a1)](https://doc.qt.io/qtforpython-6/)
+[![Platforms](https://img.shields.io/badge/Windows%20·%20macOS%20·%20Linux-cba6f7?style=flat-square&labelColor=1e1e2e)](#installation)
+[![Catppuccin](https://img.shields.io/badge/themes-Catppuccin-f5c2e7?style=flat-square&labelColor=1e1e2e)](#colors)
 
-## Contents
+[**Download**](https://github.com/vim4all/VimCommander/releases/latest) ·
+[Screenshots](#screenshots) ·
+[Quick start](#quick-start) ·
+[Cheat sheet](#cheat-sheet) ·
+[Key reference](#key-reference) ·
+[Configuration](#configuration)
 
-- [Features](#features)
-- [Screenshots](#screenshots)
-- [Installation](#installation)
-- [Getting started](#getting-started)
-- [Key reference](#key-reference)
-- [Commands](#commands)
-- **[Finding files and folders](#finding-files-and-folders)**: [Find files](#find-files) · [Result lists](#result-lists) · [Search in files](#search-in-files) · [zoxide](#zoxide) · [Activity calendar](#activity-calendar) · [Which-key and command palette](#which-key-and-command-palette)
-- **[Working with files](#working-with-files)**: [Bulk rename](#bulk-rename) · [Global commands](#global-commands) · [Shelf](#shelf) · [Zip files](#zip-files) · [PDF tools](#pdf-tools) · [Folder rules](#folder-rules) · [Freeing space](#freeing-space) · [Trash and undo](#trash-and-undo) · [Jobs and the copy queue](#jobs-and-the-copy-queue) · [Drag and drop](#drag-and-drop) · [Right-click menu](#right-click-menu) · [Launch bar](#launch-bar)
-- **[Viewing files](#viewing-files)**: [Quick view](#quick-view) · [CSV plot](#csv-plot) · [Firmware memory map](#firmware-memory-map) · [3D models](#3d-models) · [Folder graph](#folder-graph) · [Music player](#music-player)
-- **[Panes and layout](#panes-and-layout)**: [Thumbnail grid](#thumbnail-grid) · [Miller columns](#miller-columns) · [Linked panes](#linked-panes) · [Sessions](#sessions)
-- **[Comparing folders and files](#comparing-folders-and-files)**: [Compare and synchronize](#compare-and-synchronize) · [Side-by-side diff](#side-by-side-diff) · [Git](#git)
-- **[Terminal](#terminal)**: [Terminal pane](#terminal-pane)
-- **[Servers and sharing](#servers-and-sharing)**: [SSH folders](#ssh-folders) · [FTP folders](#ftp-folders) · [Share with a phone](#share-with-a-phone)
-- [Configuration](#configuration)
-- [Building a standalone app](#building-a-standalone-app)
-- [Development](#development)
-- [Roadmap](#roadmap)
-- [Limitations](#limitations)
-- [License](#license)
+![VimCommander in Catppuccin Mocha: the home folder on the left, its folder graph in quick view on the right](docs/graph-tree.png)
+
+</div>
+
+## Why VimCommander?
+
+Terminal file managers (vifm, ranger, yazi) have the keys but live in a terminal. Desktop ones (Total Commander, Explorer, Finder) have the windows but want the mouse. VimCommander is both: a normal desktop window with drag and drop and real previews, where **every action is a vim key or a `:` command**.
+
+- **Your vim muscle memory just works**: `j`/`k`, `gg`/`G`, `yy`/`p`, `dd`, counts, visual mode, registers, macros, marks, `.` to repeat, `u` to undo, `:s/old/new/`, `:g/pattern/cmd`.
+- **See inside files without opening them**: `Ctrl-q` turns the other pane into a live preview of code, images, PDFs, Markdown, CSV plots, JSON trees, Jupyter notebooks, firmware memory maps, STM32CubeMX projects and 3D models.
+- **Safe**: deletes go to the trash, and `u` undoes copies, moves, renames and deletes, even after a restart.
+- **One config file**, hot-reloaded, with four [Catppuccin](https://catppuccin.com) themes built in.
 
 ## Features
 
-**Vim at the core**
-
-- **Modal keys**: normal and visual mode, counts (`5j`, `3yy`, `12G`), sequences (`gg`, `dd`, `Ctrl-w l`), keys that take a character (`ma`, `'a`, `fx`), and a `langmap` so they work in a Ukrainian or Russian layout too.
-- **Vim grammar**: operators with motions (`yj`, `d3j`, `yG`, `gUj`), `.` and `@:` to repeat, registers (`"ayy`, `"+p` for the system clipboard), macros (`qa…q`, `@a`), `u` / `Ctrl-r`, marks, `Ctrl-o` / `Ctrl-i`, `''`, ranges (`:'<,'>`, `:%s/a/b/`), `:map` / `:noremap` with `<leader>` and a vimcommanderrc, `q:`, `Ctrl-w` window keys.
-- **Vim commands**: `:set` options with relative line numbers, `/` search with smartcase and highlights, `:s/old/new/g` on names, `:g/pattern/cmd`, a quickfix-style [result list](#result-lists) with `]q` / `[q` and `:cdo`, command-line history and editing keys.
-
-**Files**
-
-- **Two panes** with tabs, a drive menu, Total Commander's `F5` / `F6`, and background copies with progress, a [queue](#jobs-and-the-copy-queue) and name-clash choices (overwrite, keep both, skip).
-- **Safe by default**: `Del` uses the system trash, and `u` undoes copies, moves, renames, new files and trashing.
-- **Renaming**: `cw`, patterns (`:rename photo_{n:3}{ext}`), `:s`, and [bulk rename](#bulk-rename) in your editor.
-- **Collect and act**: the [shelf](#shelf), [folder rules](#folder-rules), [zip files](#zip-files) as folders, [PDF tools](#pdf-tools) and checksums.
-- **Desktop integration**: [drag and drop](#drag-and-drop) both ways, the Explorer [right-click menu](#right-click-menu), a [launch bar](#launch-bar), live refresh, natural sort (`run2` before `run10`).
-
-**Finding things**
-
-- [Fuzzy file finder](#find-files) (`Ctrl-p`), [search in files](#search-in-files) (`g/`), `:find`, [zoxide](#zoxide) jumps (`:z proj`), recent files and an [activity calendar](#activity-calendar) (`gr`).
-- [Which-key and a command palette](#which-key-and-command-palette): pause after `g`, `z` or `Ctrl-w` to see what comes next.
-
-**Seeing what's there**
-
-- [Quick view](#quick-view) (`Ctrl-q`) of text, images, PDFs, Markdown notes, CSV tables or [plots](#csv-plot), Jupyter notebooks, STM32CubeMX projects, [firmware memory maps](#firmware-memory-map), [STEP 3D models](#3d-models) and hex.
-- [Folder graphs](#folder-graph): tree, sunburst and treemap of disk usage, a timeline, file types, Obsidian-style note links and code imports.
-- [Thumbnail grid](#thumbnail-grid), [Miller columns](#miller-columns), [git](#git) status colors, [free space](#freeing-space) finders (`:reclaim`, `:dupes`).
-- A [music player](#music-player) (`gm`) for a folder or the tagged files: one slim row at the bottom, the playlist in a pane on demand.
-
-**Comparing**
-
-- [Compare and synchronize](#compare-and-synchronize) folder trees, `:mirror`, a vimdiff-style [side-by-side diff](#side-by-side-diff), and [linked panes](#linked-panes) for mirror trees.
-
-**Terminals and servers**
-
-- A [terminal panel](#terminal) that follows the pane, and a full [terminal pane](#terminal-pane) (`Ctrl-w t`) with PowerShell, cmd, bash or WSL.
-- [SSH](#ssh-folders) and [FTP](#ftp-folders) folders that work like local ones, sshfs mounts, and [sharing with a phone](#share-with-a-phone) by QR code.
-
-**Yours to set up**
-
-- One hand-editable [config file](#configuration) for options, colors and themes, programs, your own keys and `:` commands, and [sessions](#sessions). A [standalone build](#building-a-standalone-app) runs without Python.
-
-## Screenshots
-
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshot.png" alt="Two panes: git status colors, tagged files"><br><sub><b>Two panes</b>: git colors (changed, new, ignored), tagged files in red, the branch in the header</sub></td>
-<td width="50%"><img src="docs/grid.png" alt="Thumbnail grid with a photo preview"><br><sub><b>Thumbnail grid</b> (<code>zi</code>) with tagged photos, and quick view of the photo in the other pane</sub></td>
-</tr>
-<tr>
-<td><img src="docs/graph-sunburst.png" alt="Sunburst of disk usage"><br><sub><b>Sunburst</b> (<code>:graph sunburst</code>): what takes up space, three levels deep</sub></td>
-<td><img src="docs/graph-code.png" alt="Code graph of VimCommander's own source"><br><sub><b>Code graph</b> (<code>:graph code</code>): imports between source files; the big dots are imported most</sub></td>
-</tr>
-<tr>
-<td><img src="docs/columns-terminal.png" alt="Miller columns and the terminal panel"><br><sub><b>Miller columns</b> (<code>:set columns</code>) and the <b>terminal panel</b> (<code>Ctrl-`</code>) that follows the pane</sub></td>
-<td><img src="docs/results-shelf.png" alt="A result list and the shelf"><br><sub>A <b>result list</b> from <code>:find</code> (files from many folders, tagged like any others) and the <b>shelf</b></sub></td>
-</tr>
-<tr>
-<td><img src="docs/grep.png" alt="Search in files"><br><sub><b>Search in files</b> (<code>g/</code>) with the matching line in context</sub></td>
-<td><img src="docs/diff.png" alt="Side-by-side diff"><br><sub><b>Side-by-side diff</b> (<code>gd</code>), <code>]c</code> / <code>[c</code> jump between changes</sub></td>
-</tr>
-<tr>
-<td><img src="docs/mirror.png" alt="Mirror preview"><br><sub><b>Mirror</b> (<code>:mirror</code>): a preview of what will be copied and deleted, also to SSH servers</sub></td>
-<td><img src="docs/activity.png" alt="Activity calendar"><br><sub><b>Activity calendar</b> (<code>gr</code>): when files changed, day by day</sub></td>
-</tr>
-<tr>
-<td><img src="docs/graph-notes.png" alt="Notes graph"><br><sub><b>Notes graph</b> (<code>:graph notes</code>): Markdown notes and their links, like Obsidian</sub></td>
-<td></td>
+<td width="50%" valign="top">
+
+**⌨️ Vim at the core**
+- Normal and visual mode, counts, operators with motions (`yj`, `d3j`, `gUj`)
+- Registers (`"ayy`, `"+p`), macros (`qa…q`, `@a`), marks, jump list
+- `:map` / `:noremap` with `<leader>`, a vimcommanderrc, `langmap` for Cyrillic layouts
+- [Which-key](#which-key-and-command-palette) hints and a [command palette](#which-key-and-command-palette)
+
+**📁 Files**
+- Two panes with tabs, Total Commander's `F5` / `F6`, a [copy queue](#jobs-and-the-copy-queue)
+- [Bulk rename](#bulk-rename) in your editor, rename patterns, `Ctrl-a` on numbers in names
+- [Zip files](#zip-files) as folders, [PDF tools](#pdf-tools), checksums, [folder rules](#folder-rules)
+- [Shelf](#shelf), [drag and drop](#drag-and-drop) both ways, a [launch bar](#launch-bar)
+
+**🔍 Finding**
+- [Fuzzy finder](#find-files) (`Ctrl-p`), [search in files](#search-in-files) (`g/`), `:find` with size and date filters
+- [zoxide](#zoxide) jumps, recent files, an [activity calendar](#activity-calendar)
+
+</td>
+<td width="50%" valign="top">
+
+**👁️ Quick view of anything**
+- Source code in colour, images, PDFs, rendered [Markdown notes](#quick-view)
+- [CSV and LTspice plots](#csv-plot), [JSON / YAML trees](#json-and-yaml), Jupyter notebooks
+- For embedded work: [firmware memory maps](#firmware-memory-map) from `.map` / `.elf`, STM32CubeMX `.ioc`
+- [STEP and STL 3D models](#3d-models) to rotate and measure
+
+**📊 Seeing what's there**
+- [Folder graphs](#folder-graph): tree, sunburst, treemap, timeline, note links, code imports
+- [Thumbnail grid](#thumbnail-grid), [Miller columns](#miller-columns), [git](#git) colors
+- [Free-space finders](#freeing-space) (`:reclaim`, `:dupes`), a [music player](#music-player)
+
+**🔀 Comparing, terminals, servers**
+- [Compare and sync](#compare-and-synchronize) folders, `:mirror`, a vimdiff-style [diff](#side-by-side-diff)
+- A [terminal panel](#terminal) and a full [terminal pane](#terminal-pane) (bash, PowerShell, WSL)
+- [SSH](#ssh-folders) and [FTP](#ftp-folders) folders, [share with a phone](#share-with-a-phone) by QR code
+
+</td>
 </tr>
 </table>
 
-The screenshots show a made-up home folder; `tools/screenshots.py` makes it and renders them headless.
+## Screenshots
+
+All screenshots use the built-in **Catppuccin Mocha** theme (`"theme": "catppuccin-mocha"`); Latte, Frappé and Macchiato are built in too.
+
+### Quick view
+
+<table>
+<tr>
+<td width="50%"><img src="docs/code.png" alt="C source in quick view with syntax colours"><br><sub><b>Code in colour</b> (<code>Ctrl-q</code>): C, Python, Rust and every language Pygments knows; git shows <code>Core</code> as changed</sub></td>
+<td width="50%"><img src="docs/memmap.png" alt="Firmware memory map treemap"><br><sub><b>Firmware memory map</b> of a GNU ld <code>.map</code>: how full Flash and RAM are, and what fills them</sub></td>
+</tr>
+<tr>
+<td><img src="docs/plot.png" alt="Oscilloscope CSV as a plot"><br><sub><b>CSV plot</b> (<code>zp</code>): a scope capture, one strip per channel, with min / max / mean / RMS</sub></td>
+<td><img src="docs/model.png" alt="STL gear in the 3D viewer"><br><sub><b>3D models</b>: STEP and STL, shaded; drag to rotate, click two points to measure</sub></td>
+</tr>
+<tr>
+<td><img src="docs/markdown.png" alt="Rendered Markdown note"><br><sub><b>Markdown</b> rendered: callouts, tables, task lists, Obsidian <code>[[links]]</code></sub></td>
+<td><img src="docs/grid.png" alt="Thumbnail grid with a photo preview"><br><sub><b>Thumbnail grid</b> (<code>zi</code>) with tagged photos and a preview in the other pane</sub></td>
+</tr>
+</table>
+
+### Panes, graphs and tools
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshot.png" alt="Two panes with git colors and tagged files"><br><sub><b>Two panes</b>: git colors (changed, new, ignored), tagged files in red, the branch in the header</sub></td>
+<td width="50%"><img src="docs/columns-terminal.png" alt="Miller columns and the terminal panel"><br><sub><b>Miller columns</b> (<code>:set columns</code>) and the <b>terminal</b> (<code>Ctrl-`</code>) that follows the pane</sub></td>
+</tr>
+<tr>
+<td><img src="docs/whichkey.png" alt="Which-key panel after g"><br><sub><b>Which-key</b>: pause after <code>g</code>, <code>z</code>, <code>Ctrl-w</code>… to see every key that can follow</sub></td>
+<td><img src="docs/palette.png" alt="Command palette"><br><sub><b>Command palette</b> (<code>Ctrl-Shift-p</code>): every action and <code>:</code> command, by name</sub></td>
+</tr>
+<tr>
+<td><img src="docs/graph-sunburst.png" alt="Sunburst of disk usage"><br><sub><b>Sunburst</b> (<code>:graph sunburst</code>): what takes up space, three levels deep</sub></td>
+<td><img src="docs/graph-code.png" alt="Code graph"><br><sub><b>Code graph</b> (<code>:graph code</code>): imports between source files</sub></td>
+</tr>
+<tr>
+<td><img src="docs/grep.png" alt="Search in files"><br><sub><b>Search in files</b> (<code>g/</code>) with the matching line in context</sub></td>
+<td><img src="docs/diff.png" alt="Side-by-side diff"><br><sub><b>Side-by-side diff</b> (<code>gd</code>); <code>]c</code> / <code>[c</code> jump between changes</sub></td>
+</tr>
+<tr>
+<td><img src="docs/mirror.png" alt="Mirror preview"><br><sub><b>Mirror</b> (<code>:mirror</code>): a preview of what will be copied and deleted, also over SSH</sub></td>
+<td><img src="docs/activity.png" alt="Activity calendar"><br><sub><b>Activity calendar</b> (<code>gr</code>): when files changed, day by day</sub></td>
+</tr>
+<tr>
+<td><img src="docs/results-shelf.png" alt="Result list and shelf"><br><sub>A <b>result list</b> from <code>:find</code> and the <b>shelf</b> for collecting files</sub></td>
+<td><img src="docs/graph-notes.png" alt="Notes graph"><br><sub><b>Notes graph</b> (<code>:graph notes</code>): Markdown notes and their links, like Obsidian</sub></td>
+</tr>
+</table>
+
+The screenshots show a made-up home folder; `tools/screenshots.py` builds it and renders them headless.
 
 ## Installation
 
-**Windows, ready to run**: download `VimCommander-*-windows-x64.zip` from the [latest release](https://github.com/vim4all/VimCommander/releases/latest), unzip it anywhere and start `VimCommander.exe`. No Python needed. The settings are kept in `config.json` next to the exe (portable). Windows SmartScreen may warn the first time, because the exe isn't signed: *More info* → *Run anyway*.
+### Windows: ready to run
 
-**From source** you need **Python 3.10 or newer**. The dependencies are [PySide6](https://doc.qt.io/qtforpython-6/) (Qt for Python, about 200–300 MB installed), [paramiko](https://www.paramiko.org/) for [SSH folders](#ssh-folders), [segno](https://segno.readthedocs.io/) for the QR code of [`:share`](#share-with-a-phone), [PyYAML](https://pyyaml.org/) for [YAML trees](#json-and-yaml), [Pygments](https://pygments.org/) for code in colour and [numpy](https://numpy.org/) for a fast wireframe of big [3D models](#3d-models) (optional). The [music player](#music-player) uses QtMultimedia from `PySide6-Addons` (in requirements.txt; without it everything else still works).
+Download `VimCommander-*-windows-x64.zip` from the [**latest release**](https://github.com/vim4all/VimCommander/releases/latest), unzip it anywhere and start `VimCommander.exe`. No Python needed; the settings live in `config.json` next to the exe (portable).
 
-**Linux / macOS**
+> Windows SmartScreen may warn the first time because the exe isn't signed: *More info* → *Run anyway*.
+
+### From source (Linux, macOS, Windows)
+
+You need **Python 3.10 or newer** and git.
 
 ```bash
 git clone https://github.com/vim4all/VimCommander.git
 cd VimCommander
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python main.py
+.venv/bin/pip install -r requirements.txt     # Windows: .venv\Scripts\pip install -r requirements.txt
+.venv/bin/python main.py                      # Windows: .venv\Scripts\python main.py
 ```
 
-**Windows** (PowerShell or cmd)
+Open specific folders with `python main.py ~/projects ~/Downloads`. With no arguments it reopens the folders you had last time.
 
-```bat
-git clone https://github.com/vim4all/VimCommander.git
-cd VimCommander
-py -m venv .venv
-.venv\Scripts\pip install -r requirements.txt
-.venv\Scripts\python main.py
-```
+<details>
+<summary><b>Dependencies, and what each one is for</b></summary>
 
-To start with specific folders, pass them as arguments:
+| Package | For | Needed? |
+|---|---|---|
+| [PySide6](https://doc.qt.io/qtforpython-6/) (Essentials) | the whole app (Qt for Python, about 200–300 MB) | yes |
+| PySide6-Addons | QtMultimedia for the [music player](#music-player) | optional |
+| [paramiko](https://www.paramiko.org/) | [SSH folders](#ssh-folders) | optional |
+| [segno](https://segno.readthedocs.io/) | the QR code of [`:share`](#share-with-a-phone) | optional |
+| [pypdfium2](https://pypi.org/project/pypdfium2/) | PDF previews and [PDF tools](#pdf-tools) | optional |
+| [pyte](https://github.com/selectel/pyte) | the [terminal pane](#terminal-pane) | optional |
+| [PyYAML](https://pyyaml.org/) | [YAML trees](#json-and-yaml) | optional |
+| [Pygments](https://pygments.org/) | source code in colour | optional |
+| [numpy](https://numpy.org/) | fast wireframes of big [3D models](#3d-models) | optional |
 
-```bash
-python main.py ~/projects ~/Downloads
-```
+All of them are in `requirements.txt`; without an optional one, everything else still works.
 
-With no arguments, VimCommander reopens the folders you had open last time. On the very first run it opens the current folder on the left and your home folder on the right.
+</details>
 
-> **WSL users:** the app runs under WSLg, but drag and drop with Windows Explorer only works if you run it with a Windows Python. Use a separate environment for that (for example `.venv-win`), because a Linux `.venv` can't be used from Windows.
+> **WSL users:** the app runs under WSLg, but drag and drop with Windows Explorer only works with a Windows Python. Use a separate environment for that (for example `.venv-win`).
 
-## Getting started
+## Quick start
 
 If you know vim, most keys do what you expect:
 
 1. Move with `j` / `k`. Open a folder or file with `l` or `Enter`; go up with `h` or `Backspace`.
 2. Switch panes with `Tab`.
-3. Copy a file: put the cursor on it, press `yy`, switch to the other pane with `Tab`, press `p`.
-4. Copy several files: press `v`, extend the range with `j`, then press `F5` to copy them to the other pane.
-5. Type `:` for commands, for example `:cd ~/Documents` or `:mkdir new-folder`.
-6. Press `F1` at any time for the full key list.
+3. Copy a file: `yy` on it, `Tab` to the other pane, `p`.
+4. Copy several: `v`, extend with `j`, then `F5` copies them to the other pane.
+5. Press `Ctrl-q` to preview whatever is under the cursor in the other pane.
+6. Type `:` for commands, such as `:cd ~/Documents` or `:mkdir new-folder`.
+7. Lost? Pause after any key for [which-key](#which-key-and-command-palette) hints, `Ctrl-Shift-p` for the command palette, `F1` for all keys.
 
-The status bar at the bottom shows the mode (`-- VISUAL --`), keys typed so far (`3y`), what's in the register, how many items are tagged, and the cursor position.
+To try a theme, run `:config` to open the config file and set `"theme": "catppuccin-mocha"`; it applies as soon as you save.
+
+## Cheat sheet
+
+| Move | | Files | | View | |
+|---|---|---|---|---|---|
+| `j` `k` | down / up | `yy` `p` | copy / paste | `Ctrl-q` | quick view |
+| `h` `l` | parent / open | `dd` `p` | cut / paste | `zp` | CSV as plot |
+| `gg` `G` | first / last | `F5` `F6` | copy / move to other pane | `zi` | thumbnail grid |
+| `Tab` | other pane | `cw` | rename | `za` | hidden files |
+| `/` `n` | search / next | `Del` | to trash | `gG` | folder graph |
+| `Ctrl-p` | fuzzy find | `u` `Ctrl-r` | undo / redo | `gd` | diff two files |
+| `g/` | search in files | `t` `v` | tag / visual mode | ``Ctrl-` `` | terminal |
+| `ma` `'a` | mark / jump | `.` | repeat | `Ctrl-Shift-p` | palette |
+
+Everything else is in the [key reference](#key-reference) and the [commands](#commands) below.
+
+## Contents
+
+- [Key reference](#key-reference) · [Commands](#commands)
+- **[Finding files and folders](#finding-files-and-folders)**: [Find files](#find-files) · [Result lists](#result-lists) · [Search in files](#search-in-files) · [zoxide](#zoxide) · [Activity calendar](#activity-calendar) · [Which-key and command palette](#which-key-and-command-palette)
+- **[Working with files](#working-with-files)**: [Bulk rename](#bulk-rename) · [Global commands](#global-commands) · [Shelf](#shelf) · [Zip files](#zip-files) · [PDF tools](#pdf-tools) · [Folder rules](#folder-rules) · [Freeing space](#freeing-space) · [Trash and undo](#trash-and-undo) · [Jobs and the copy queue](#jobs-and-the-copy-queue) · [Drag and drop](#drag-and-drop) · [Right-click menu](#right-click-menu) · [Launch bar](#launch-bar)
+- **[Viewing files](#viewing-files)**: [Quick view](#quick-view) · [CSV plot](#csv-plot) · [Firmware memory map](#firmware-memory-map) · [JSON and YAML](#json-and-yaml) · [3D models](#3d-models) · [Folder graph](#folder-graph) · [Music player](#music-player)
+- **[Panes and layout](#panes-and-layout)**: [Thumbnail grid](#thumbnail-grid) · [Miller columns](#miller-columns) · [Linked panes](#linked-panes) · [Sessions](#sessions)
+- **[Comparing folders and files](#comparing-folders-and-files)**: [Compare and synchronize](#compare-and-synchronize) · [Side-by-side diff](#side-by-side-diff) · [Git](#git)
+- **[Terminal](#terminal)**: [Terminal pane](#terminal-pane)
+- **[Servers and sharing](#servers-and-sharing)**: [SSH folders](#ssh-folders) · [FTP folders](#ftp-folders) · [Share with a phone](#share-with-a-phone)
+- [Configuration](#configuration) · [Building a standalone app](#building-a-standalone-app) · [Development](#development) · [Roadmap](#roadmap) · [Limitations](#limitations) · [License](#license)
 
 ## Key reference
 
