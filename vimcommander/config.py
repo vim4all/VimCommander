@@ -33,7 +33,8 @@ DEFAULTS = {
     "font": {"family": "", "size": 0},  # empty / 0 = system default
     # File lists, paths, command line and quick view. Empty family = best installed one.
     "monospace": {"enabled": True, "family": "", "size": 0},
-    # "" = the system look, "catppuccin-mocha" = Catppuccin Mocha (the whole window and
+    # "" = the system look, or a Catppuccin flavour: "catppuccin-latte" (light),
+    # "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha" (the whole window and
     # the defaults of "colors", which still win where you change them)
     "theme": "",
     # Colors: "#rrggbb", "#rrggbbaa" (aa = opacity, 00-ff) or a name like "red";

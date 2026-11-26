@@ -20,7 +20,26 @@ MOCHA = {
     "surface2": "#585b70", "surface1": "#45475a", "surface0": "#313244", "base": "#1e1e2e",
     "mantle": "#181825", "crust": "#11111b",
 }
-# Latte, the light flavour: file icons in the system look on a light background
+# Macchiato and Frappé, the two lighter dark flavours
+MACCHIATO = {
+    "rosewater": "#f4dbd6", "flamingo": "#f0c6c6", "pink": "#f5bde6", "mauve": "#c6a0f6",
+    "red": "#ed8796", "maroon": "#ee99a0", "peach": "#f5a97f", "yellow": "#eed49f",
+    "green": "#a6da95", "teal": "#8bd5ca", "sky": "#91d7e3", "sapphire": "#7dc4e4",
+    "blue": "#8aadf4", "lavender": "#b7bdf8", "text": "#cad3f5", "subtext1": "#b8c0e0",
+    "subtext0": "#a5adcb", "overlay2": "#939ab7", "overlay1": "#8087a2", "overlay0": "#6e738d",
+    "surface2": "#5b6078", "surface1": "#494d64", "surface0": "#363a4f", "base": "#24273a",
+    "mantle": "#1e2030", "crust": "#181926",
+}
+FRAPPE = {
+    "rosewater": "#f2d5cf", "flamingo": "#eebebe", "pink": "#f4b8e4", "mauve": "#ca9ee6",
+    "red": "#e78284", "maroon": "#ea999c", "peach": "#ef9f76", "yellow": "#e5c890",
+    "green": "#a6d189", "teal": "#81c8be", "sky": "#99d1db", "sapphire": "#85c1dc",
+    "blue": "#8caaee", "lavender": "#babbf1", "text": "#c6d0f5", "subtext1": "#b5bfe2",
+    "subtext0": "#a5adce", "overlay2": "#949cbb", "overlay1": "#838ba7", "overlay0": "#737994",
+    "surface2": "#626880", "surface1": "#51576d", "surface0": "#414559", "base": "#303446",
+    "mantle": "#292c3c", "crust": "#232634",
+}
+# Latte, the light flavour (also the file icons in the system look on a light background)
 LATTE = {
     "rosewater": "#dc8a78", "flamingo": "#dd7878", "pink": "#ea76cb", "mauve": "#8839ef",
     "red": "#d20f39", "maroon": "#e64553", "peach": "#fe640b", "yellow": "#df8e1d",
@@ -113,8 +132,8 @@ QProgressBar::chunk {{ background: {m["blue"]}; border-radius: 4px; }}
 """
 
 
-def _mocha() -> dict:
-    m = MOCHA
+def _catppuccin(m: dict, dark: bool = True) -> dict:
+    """A whole theme from one Catppuccin flavour's palette."""
     return {
         "sheet": _sheet(m),
         "palette": {
@@ -129,7 +148,7 @@ def _mocha() -> dict:
         "disabled": {"WindowText": m["overlay0"], "Text": m["overlay0"],
                      "ButtonText": m["overlay0"], "Highlight": m["surface1"]},
         "colors": {  # the config's "colors" section
-            "cursor": m["blue"], "cursor_text": m["crust"], "cursor_inactive": m["blue"] + "40",
+            "cursor": m["blue"], "cursor_text": m["crust"] if dark else m["base"], "cursor_inactive": m["blue"] + "40",
             "tagged": m["red"], "tagged_background": m["red"] + "26",
             "search": m["yellow"] + "55", "hidden": m["overlay0"], "folder": m["blue"],
             "header_active": m["surface0"], "header_active_text": m["blue"],
@@ -149,9 +168,11 @@ def _mocha() -> dict:
         "sync": {">": m["blue"], "<": m["green"], "": m["overlay1"], "x": m["red"]},
         "activity": m["green"],
         "icons": m,  # file and bar icons (icons.py): colour names from this palette
-        "terminal": [m["surface1"], m["red"], m["green"], m["yellow"], m["blue"], m["pink"], m["teal"],
-                     m["subtext1"], m["surface2"], m["red"], m["green"], m["yellow"], m["blue"], m["pink"],
-                     m["teal"], m["subtext0"]],
+        # ANSI colors as Catppuccin's terminal themes set them (Latte swaps the grays)
+        "terminal": [m["surface1"] if dark else m["subtext1"], m["red"], m["green"], m["yellow"], m["blue"],
+                     m["pink"], m["teal"], m["subtext1"] if dark else m["surface2"],
+                     m["surface2"] if dark else m["subtext0"], m["red"], m["green"], m["yellow"], m["blue"],
+                     m["pink"], m["teal"], m["subtext0"] if dark else m["surface1"]],
         # code in quick view, as Catppuccin's own editor themes colour it
         "syntax": {"keyword": m["mauve"], "type": m["yellow"], "function": m["blue"], "string": m["green"],
                    "number": m["peach"], "comment": m["overlay2"], "preproc": m["pink"], "constant": m["peach"],
@@ -160,8 +181,15 @@ def _mocha() -> dict:
     }
 
 
-THEMES = {"catppuccin-mocha": _mocha}
-ALIASES = {"mocha": "catppuccin-mocha", "catppuccin": "catppuccin-mocha"}
+THEMES = {
+    "catppuccin-latte": lambda: _catppuccin(LATTE, dark=False),
+    "catppuccin-frappe": lambda: _catppuccin(FRAPPE),
+    "catppuccin-macchiato": lambda: _catppuccin(MACCHIATO),
+    "catppuccin-mocha": lambda: _catppuccin(MOCHA),
+}
+ALIASES = {"latte": "catppuccin-latte", "frappe": "catppuccin-frappe", "frappé": "catppuccin-frappe",
+           "catppuccin-frappé": "catppuccin-frappe", "macchiato": "catppuccin-macchiato",
+           "mocha": "catppuccin-mocha", "catppuccin": "catppuccin-mocha"}
 
 _system: dict = {}  # the look before any theme: style name, palette, module colors
 _current: str | None = None  # None: nothing applied yet
@@ -173,9 +201,15 @@ def app() -> QApplication:
     return instance
 
 
+def _name(name) -> str:
+    """The theme's canonical name: case, spaces and aliases ("mocha", "frappé") don't matter."""
+    name = str(name or "").strip().lower()
+    return ALIASES.get(name, name)
+
+
 def color_defaults(name: str) -> dict[str, str]:
     """The theme's defaults for the config's "colors" ({} for the system look)."""
-    name = ALIASES.get(name, name)
+    name = _name(name)
     return THEMES[name]()["colors"] if name in THEMES else {}
 
 
@@ -190,7 +224,7 @@ def apply(name: str) -> bool:
     """Switch the app to theme `name` ("" = system). False if there is no such theme."""
     global _current
     from . import activity, diffview, graphview, grepdialog, icons, sync, syntax, termshell  # they import Qt widgets
-    name = ALIASES.get(str(name or "").strip().lower(), str(name or "").strip().lower())
+    name = _name(name)
     if name and name not in THEMES:
         return False
     if name == _current:

@@ -1110,7 +1110,7 @@ If the file has a syntax error, the app tells you and uses defaults. It saves no
 |---|---|
 | `window` | starting size in pixels, or start maximized (applies at start) |
 | `font` | font family and point size for the whole window; `""` / `0` = system default (applies at start) |
-| `theme` | `""` = the system look, `"catppuccin-mocha"` = [Catppuccin Mocha](https://catppuccin.com) for the whole window; see [Colors](#colors) |
+| `theme` | `""` = the system look, or a [Catppuccin](https://catppuccin.com) flavour for the whole window: `"catppuccin-latte"` (light), `"catppuccin-frappe"`, `"catppuccin-macchiato"`, `"catppuccin-mocha"` (darkest); see [Colors](#colors) |
 | `colors` | colors of the cursor, tagged items, search matches and more; see [Colors](#colors) |
 | `graph` | the [folder graph](#folder-graph): `enabled` (in quick view), `depth` (1–3), `size_by` (`"size"` or `"count"`), `mode` (`"tree"`, `"sunburst"`, `"treemap"`, `"timeline"`, `"types"`, `"notes"` or `"code"`), `max_nodes` (50–2000) |
 | `which_key_delay` | milliseconds after a prefix key before the [which-key](#which-key-and-command-palette) panel shows; `0` = never |
@@ -1195,7 +1195,7 @@ The `colors` section sets how the cursor and tagged items look. Changes show as 
 
 Write colors as `#rrggbb`, as `#rrggbbaa` where `aa` is the opacity (`00` transparent to `ff` solid; `4d` is about 30%), or as a name such as `orange`. `""` uses the system theme's color. A color the app can't read is reported in the status bar and the default is used.
 
-`"theme": "catppuccin-mocha"` (or `"mocha"`) gives the whole window [Catppuccin Mocha](https://catppuccin.com/palette) colors: the lists, dialogs, graph, diff and grep views. It is also flat: the line numbers and column headers sit on the list's background, the launch bar, tabs and menus have no frames or bevels, and the scroll bars are thin. It also replaces the defaults above with Mocha ones (a blue cursor, red tags, peach / green git colors); a color you changed from its default is kept. `""` goes back to the system look. Both apply as soon as you save the file.
+`"theme": "catppuccin-mocha"` (or just `"mocha"`) gives the whole window [Catppuccin](https://catppuccin.com/palette) colors: the lists, dialogs, graph, diff and grep views, the terminal and the syntax colors in quick view. All four flavours work the same way: `"catppuccin-latte"` (`"latte"`) is the light one, `"catppuccin-frappe"` (`"frappe"`) and `"catppuccin-macchiato"` (`"macchiato"`) are the softer dark ones, and Mocha is the darkest. A theme is also flat: the line numbers and column headers sit on the list's background, the launch bar, tabs and menus have no frames or bevels, and the scroll bars are thin. It also replaces the defaults above with the flavour's own (a blue cursor, red tags, peach / green git colors); a color you changed from its default is kept. `""` goes back to the system look. Both apply as soon as you save the file.
 
 ### Programs
 
