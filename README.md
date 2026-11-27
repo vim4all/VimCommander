@@ -20,7 +20,7 @@ Total Commander's layout · vim's keyboard · previews for everything from code 
 [Key reference](#key-reference) ·
 [Configuration](#configuration)
 
-![VimCommander in Catppuccin Mocha: the home folder on the left, its folder graph in quick view on the right](docs/graph-tree.png)
+![VimCommander in Catppuccin Mocha: moving through a firmware project with j, l and h while quick view shows a folder graph, a linker map, a scope capture as a plot, a 3D model and a README](docs/demo.gif)
 
 </div>
 
@@ -97,6 +97,10 @@ All screenshots use the built-in **Catppuccin Mocha** theme (`"theme": "catppucc
 <td><img src="docs/markdown.png" alt="Rendered Markdown note"><br><sub><b>Markdown</b> rendered: callouts, tables, task lists, Obsidian <code>[[links]]</code></sub></td>
 <td><img src="docs/grid.png" alt="Thumbnail grid with a photo preview"><br><sub><b>Thumbnail grid</b> (<code>zi</code>) with tagged photos and a preview in the other pane</sub></td>
 </tr>
+<tr>
+<td><img src="docs/graph-tree.png" alt="Folder graph of the home folder in quick view"><br><sub><b>Folder graph</b>: quick view of a folder (or <code>..</code>) shows what's inside, by size</sub></td>
+<td></td>
+</tr>
 </table>
 
 ### Panes, graphs and tools
@@ -128,7 +132,7 @@ All screenshots use the built-in **Catppuccin Mocha** theme (`"theme": "catppucc
 </tr>
 </table>
 
-The screenshots show a made-up home folder; `tools/screenshots.py` builds it and renders them headless.
+The screenshots and the animation show a made-up home folder; `tools/screenshots.py` builds it and renders them headless.
 
 ## Installation
 
@@ -1345,7 +1349,7 @@ The output folder holds `VimCommander.exe` (or `VimCommander`), the `_internal` 
 
 ## Development
 
-The source layout, tests and how to add keys and commands are in [DEVELOPMENT.md](DEVELOPMENT.md).
+The source layout, tests and how to add keys and commands are in [DEVELOPMENT.md](DEVELOPMENT.md). Bug reports, sample files and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Roadmap
 

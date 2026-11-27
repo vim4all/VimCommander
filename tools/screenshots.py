@@ -2,7 +2,7 @@
 
     .venv/bin/python tools/screenshots.py
 
-Linux (or WSL) with git installed; it runs headless (QT_QPA_PLATFORM=offscreen)
+Linux (or WSL) with git installed (and Pillow for docs/demo.gif); it runs headless (QT_QPA_PLATFORM=offscreen)
 and builds the demo folder in the temp folder (vimcommander-demo), with HOME pointing there.
 """
 import math
@@ -543,6 +543,81 @@ p.query.setText("sync")
 wait(400)
 save(p, "palette.png")
 p.close()
+
+# 9. docs/demo.gif: moving through the firmware project with quick view on (needs Pillow)
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError:
+    Image = None
+    print("skipped demo.gif: pip install pillow")
+if Image:
+    from PySide6.QtCore import QBuffer, QIODevice
+    import io
+
+    frames, durations = [], []
+    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
+    key_font = ImageFont.truetype(font_path, 26) if os.path.exists(font_path) else ImageFont.load_default()
+
+    def frame(caption, ms):
+        """The window as a frame, scaled down, with the key just pressed in a corner."""
+        w.show_message("")
+        w.update_status()
+        wait(30)
+        buf = QBuffer()
+        buf.open(QIODevice.OpenModeFlag.WriteOnly)
+        w.grab().save(buf, "PNG")
+        img = Image.open(io.BytesIO(bytes(buf.data()))).convert("RGB")
+        img = img.resize((1050, round(img.height * 1050 / img.width)), Image.LANCZOS)
+        if caption:
+            d = ImageDraw.Draw(img)
+            box = d.textbbox((0, 0), caption, font=key_font)
+            tw, th = box[2] - box[0], box[3] - box[1]
+            x, y = img.width - tw - 44, img.height - th - 58
+            d.rounded_rectangle((x - 16, y - 12, x + tw + 16, y + th + 18), 10, fill="#313244", outline="#cba6f7", width=2)
+            d.text((x, y - box[1] + 3), caption, font=key_font, fill="#cdd6f4")
+        frames.append(img)
+        durations.append(ms)
+
+    def press(keys, caption=None, settle=900, ms=1300):
+        for k in keys:
+            w.feed_key(k)
+            wait(60)
+        wait(settle)
+        frame(caption or "".join(keys), ms)
+
+    left.cd(H(FW))
+    right.cd(H(FW))
+    w.activate(0)
+    left.set_cursor(0)
+    wait(300)
+    frame("", 900)
+    press(["<C-q>"], "Ctrl-q  quick view", settle=2200, ms=1600)  # the folder graph of ..
+    press(["j"], settle=1500)                                    # Core: its graph
+    press(["j"], settle=1500)                                    # Debug
+    press(["l"], "l  open", settle=600, ms=900)
+    press(["G"], "G  last", settle=1500, ms=2200)                 # charger-fw.map: memory map
+    press(["h"], "h  back", settle=600, ms=900)
+    press(["j"], settle=1800, ms=900)                             # measurements
+    press(["l"], "l  open", settle=600, ms=600)
+    press(["j"], settle=900, ms=500)                              # scope_100kHz.csv as a table
+    press(["z", "p"], "zp  plot", settle=1800, ms=2200)            # ... and as a plot
+    press(["h"], "h  back", settle=600, ms=700)
+    press(["j"], settle=1500, ms=700)                             # mechanics
+    press(["l"], "l  open", settle=600, ms=500)
+    press(["j"], settle=3000, ms=2200)                            # coil_gear.stl: 3D model
+    press(["h"], "h  back", settle=600, ms=700)
+    press(["G"], "G  last", settle=1500, ms=2400)                 # README.md rendered
+    w.cmd_plot(None)
+    w.cmd_quickview(None)
+    # one palette for all frames keeps the colours steady and the file small
+    mosaic = Image.new("RGB", (frames[0].width, frames[0].height * len(frames)))
+    for i, f in enumerate(frames):
+        mosaic.paste(f, (0, i * f.height))
+    palette_src = mosaic.quantize(colors=256, method=Image.Quantize.MEDIANCUT)
+    gif = [f.quantize(palette=palette_src, dither=Image.Dither.NONE) for f in frames]
+    gif[0].save(os.path.join(DOCS, "demo.gif"), save_all=True, append_images=gif[1:],
+                duration=durations, loop=0, optimize=True, disposal=1)
+    print("saved demo.gif")
 w.terminal.stop()
 w.close()
 print("done")
