@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/vim4all/VimCommander/discussions
+    about: Ask how to do something, or share an idea, in Discussions.

@@ -1,0 +1,52 @@
+name: Quick view shows a file wrong
+description: A linker map, .ioc, LTspice .raw, CSV, STEP, STL or other file previews badly
+labels: [preview]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **A sample file is the most useful thing you can attach.** Drag it into the box below (zip it if GitHub refuses the extension). Remove anything confidential first; a small project that shows the same problem works too.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: File type
+      options:
+        - Linker map, GNU ld (.map)
+        - Linker map, Keil MDK (.map)
+        - ELF / AXF firmware image
+        - STM32CubeMX project (.ioc)
+        - LTspice result (.raw)
+        - CSV / TSV (table or plot)
+        - STEP model (.step / .stp)
+        - STL mesh
+        - Jupyter notebook (.ipynb)
+        - Markdown
+        - JSON / JSON Lines / YAML
+        - Source code (colours)
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: maker
+    attributes:
+      label: Which program made the file?
+      placeholder: STM32CubeIDE 1.16, ESP-IDF 5.3, LTspice 24.1, Siglent SDS1104X-E, KiCad 9 STEP export...
+  - type: textarea
+    id: what
+    attributes:
+      label: What's wrong?
+      description: What does quick view show, and what should it show? A screenshot helps.
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: Sample file
+      description: Drag the file (or a zip of it) here.
+  - type: input
+    id: version
+    attributes:
+      label: VimCommander version
+      description: The release (e.g. v0.4.0), or the commit if you run from source.
+    validations:
+      required: true

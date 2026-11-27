@@ -1,0 +1,23 @@
+name: Feature request
+description: A key, command or preview you'd like
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: The key, command or preview, and what it should do.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What would you use it for?
+      description: The situation where you miss it.
+    validations:
+      required: true
+  - type: input
+    id: elsewhere
+    attributes:
+      label: How does vim, vifm, ranger or Total Commander do it?
+      description: If another tool already has it, the key or command there helps keep VimCommander familiar.
