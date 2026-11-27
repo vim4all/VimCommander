@@ -54,7 +54,7 @@ jobs:
       - name: Build
         run: |
           pip install build
-          python -m build
+          pyproject-build  # not "python -m build": that would run this repo's build.py
       - name: Install with pipx and start it
         run: |
           pipx install dist/*.whl

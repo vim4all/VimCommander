@@ -84,5 +84,5 @@ jobs:
       - name: Build
         run: |
           pip install build
-          python -m build
+          pyproject-build  # not "python -m build": that would run this repo's build.py
       - uses: pypa/gh-action-pypi-publish@release/v1
