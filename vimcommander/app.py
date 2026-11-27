@@ -3,6 +3,7 @@
 import copy
 import fnmatch
 import os
+import platform
 import posixpath
 import re
 import shlex
@@ -16,6 +17,7 @@ from collections import deque
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import PySide6
 from PySide6.QtCore import QEvent, QFile, QFileSystemWatcher, QObject, QPoint, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFont, QFontDatabase, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDialog, QHBoxLayout, QInputDialog, QLabel, QSizePolicy,
@@ -5349,11 +5351,23 @@ def show_exception(kind, value, tb) -> None:
     QMessageBox.critical(QApplication.activeWindow(), "VimCommander error", text[-3000:])
 
 
+def broken_pyside(python: tuple = sys.version_info[:2], pyside: str = PySide6.__version__) -> bool:
+    """PySide6 6.12 loses a reference to None on every call returning nothing; before
+    Python 3.12 None isn't immortal, so the app aborts once its count runs out."""
+    return python < (3, 12) and pyside.split(".")[:2] == ["6", "12"]
+
+
 def main() -> None:
     if sys.stderr is None:
         sys.excepthook = show_exception
     app = QApplication(sys.argv)
     app.setApplicationName("VimCommander")
+    if broken_pyside():
+        QMessageBox.warning(None, "PySide6 6.12 on Python " + platform.python_version(),
+                            "PySide6 6.12 crashes on Python 3.11 and older after a while "
+                            "(\"Fatal Python error: none_dealloc\").\n\nInstall an older one:\n"
+                            "pip install \"PySide6-Essentials<6.12\" \"PySide6-Addons<6.12\"\n\n"
+                            "or use Python 3.12 or newer.")
     from . import appicon
     app.setWindowIcon(appicon.icon())
     error = None
