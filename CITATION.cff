@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use VimCommander in your work, please cite it as below."
+type: software
+title: "VimCommander"
+abstract: "A two-pane graphical file manager driven with vim keys, with previews of source code, linker map files, CSV and LTspice plots, and STEP / STL 3D models."
+authors:
+  - family-names: Pakhaliuk
+    given-names: Bohdan
+    orcid: "https://orcid.org/0000-0002-2303-5084"
+version: 0.4.0
+date-released: "2026-11-27"
+license: MIT
+repository-code: "https://github.com/vim4all/VimCommander"
+keywords:
+  - "file manager"
+  - "vim"
+  - "Qt"
+  - "PySide6"
+  - "embedded"
