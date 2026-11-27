@@ -7,6 +7,7 @@
 Total Commander's layout · vim's keyboard · previews for everything from code to linker maps and 3D models
 
 [![Release](https://img.shields.io/github/v/release/vim4all/VimCommander?style=flat-square&color=89b4fa&labelColor=1e1e2e)](https://github.com/vim4all/VimCommander/releases/latest)
+[![Tests](https://img.shields.io/github/actions/workflow/status/vim4all/VimCommander/tests.yml?branch=main&style=flat-square&label=tests&labelColor=1e1e2e)](https://github.com/vim4all/VimCommander/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-a6e3a1?style=flat-square&labelColor=1e1e2e)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-f9e2af?style=flat-square&labelColor=1e1e2e&logo=python&logoColor=f9e2af)](#installation)
 [![Qt 6](https://img.shields.io/badge/Qt-PySide6-a6e3a1?style=flat-square&labelColor=1e1e2e&logo=qt&logoColor=a6e3a1)](https://doc.qt.io/qtforpython-6/)
@@ -141,6 +142,17 @@ The screenshots and the animation show a made-up home folder; `tools/screenshots
 Download `VimCommander-*-windows-x64.zip` from the [**latest release**](https://github.com/vim4all/VimCommander/releases/latest), unzip it anywhere and start `VimCommander.exe`. No Python needed; the settings live in `config.json` next to the exe (portable).
 
 > Windows SmartScreen may warn the first time because the exe isn't signed: *More info* → *Run anyway*.
+
+### Linux and macOS (and Windows): pipx
+
+With [pipx](https://pipx.pypa.io/) and Python 3.10 or newer, one command installs VimCommander in its own environment and puts `vimcommander` on your PATH:
+
+```bash
+pipx install git+https://github.com/vim4all/VimCommander.git
+vimcommander                  # or: vimcommander ~/projects ~/Downloads
+```
+
+`pipx upgrade vimcommander` updates it, and `pipx uninstall vimcommander` removes it. (`uv tool install git+https://github.com/vim4all/VimCommander.git` works the same way.)
 
 ### From source (Linux, macOS, Windows)
 

@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vimcommander"
+dynamic = ["version"]
+description = "A two-pane graphical file manager driven with vim keys, with previews of code, linker maps, plots and 3D models"
+readme = "docs/pypi.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Bohdan Pakhaliuk" }]
+keywords = ["file-manager", "vim", "vim-keybindings", "qt", "pyside6", "orthodox-file-manager", "embedded"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: X11 Applications :: Qt",
+    "Environment :: Win32 (MS Windows)",
+    "Environment :: MacOS X",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Desktop Environment :: File Managers",
+    "Topic :: System :: Filesystems",
+]
+# The same as requirements.txt (tests/test_packaging.py checks it)
+dependencies = [
+    'PySide6-Essentials>=6.5,<6.12; python_version < "3.12"',
+    'PySide6-Essentials>=6.5; python_version >= "3.12"',
+    'PySide6-Addons>=6.5,<6.12; python_version < "3.12"',
+    'PySide6-Addons>=6.5; python_version >= "3.12"',
+    "segno>=1.5",
+    "paramiko>=3.0",
+    "pypdfium2>=4.30",
+    "pyte>=0.8",
+    "pyyaml>=6.0",
+    "pygments>=2.15",
+    "numpy>=1.24",
+    'pywinpty>=2.0; sys_platform == "win32"',
+]
+
+[project.urls]
+Homepage = "https://github.com/vim4all/VimCommander"
+Documentation = "https://github.com/vim4all/VimCommander#key-reference"
+Issues = "https://github.com/vim4all/VimCommander/issues"
+Changelog = "https://github.com/vim4all/VimCommander/releases"
+
+[project.gui-scripts]
+vimcommander = "vimcommander.app:main"
+
+[tool.setuptools]
+packages = ["vimcommander"]
+
+[tool.setuptools.dynamic]
+version = { attr = "vimcommander.__version__" }

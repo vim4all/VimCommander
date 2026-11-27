@@ -1,14 +1,15 @@
 name: Release
 
 # Push a version tag (git tag v0.2.0 && git push origin v0.2.0) to test, build VimCommander.exe
-# and publish it as a GitHub Release (notes: .github/release-notes.md).
+# and publish it as a GitHub Release (notes: .github/release-notes.md), and the Python package
+# on PyPI. Set __version__ in vimcommander/__init__.py to the tag's version first.
 # A manual run (Actions → Release → Run workflow), or a change of the build on main, only
 # builds the zip; download it as the workflow artifact.
 on:
   push:
     tags: ["v*"]
     branches: [main]
-    paths: [".github/workflows/release.yml", "build.py", "requirements*.txt"]
+    paths: [".github/workflows/release.yml", "build.py", "requirements*.txt", "pyproject.toml"]
   workflow_dispatch:
 
 permissions:
@@ -57,3 +58,31 @@ jobs:
           name: VimCommander ${{ github.ref_name }}
           body_path: .github/release-notes.md
           files: VimCommander-*-windows-x64.zip
+
+  pypi:
+    # PyPI's trusted publishing: no token here. On pypi.org, the project "vimcommander" trusts
+    # this repository's release.yml in the "pypi" environment.
+    if: github.ref_type == 'tag'
+    needs: windows
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/vimcommander
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: The tag matches __version__
+        run: |
+          version=$(python -c "import ast; print([n.value.value for n in ast.parse(open('vimcommander/__init__.py').read()).body if isinstance(n, ast.Assign)][0])")
+          echo "tag ${{ github.ref_name }}, __version__ $version"
+          [ "v$version" = "${{ github.ref_name }}" ]
+      - name: Build
+        run: |
+          pip install build
+          python -m build
+      - uses: pypa/gh-action-pypi-publish@release/v1
